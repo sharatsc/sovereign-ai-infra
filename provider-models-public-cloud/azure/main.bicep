@@ -1,12 +1,11 @@
 // Sovereign AI reference: provider models in public cloud (Azure).
 // Deploys an AI Gateway in front of Microsoft Foundry model deployments (OpenAI by default;
-// Anthropic Claude is supported through the models parameter), Application Insights
-// telemetry for the gateway, and the Foundry
-// project resources for hosted agents. Based on Azure-Samples/AI-Gateway
-// (labs/aigw-foundry-models) and Azure-Samples/simple-foundry-hosted-agent-python-aigateway.
+// Anthropic Claude is supported through the models parameter) with Application Insights
+// traces. Based on Azure-Samples/AI-Gateway (labs/aigw-foundry-models) and
+// Azure-Samples/simple-foundry-hosted-agent-python-aigateway, scoped to model access.
 targetScope = 'resourceGroup'
 
-@description('Region for Foundry, storage, container registry and monitoring. Claude models need a region that offers them.')
+@description('Region for Foundry and monitoring. Claude models need a region that offers them.')
 @allowed([
   'eastus2'
   'swedencentral'
@@ -25,7 +24,7 @@ param aiGatewayLocation string = 'eastus2'
 @description('Short lowercase prefix for resource names.')
 param namePrefix string = 'sovai'
 
-@description('Optional Entra object ID of a user, group or service principal. It gets the AI Gateway User role (call models and tools) and Foundry developer access. Leave empty to skip.')
+@description('Optional extra Entra object ID (user, group or service principal) to grant access. The account that runs the deployment always gets access.')
 param principalId string = ''
 
 @allowed([
@@ -35,9 +34,6 @@ param principalId string = ''
 ])
 @description('Type of principalId.')
 param principalType string = 'User'
-
-@description('Create a gateway API key. Microsoft recommends Entra ID and Azure RBAC instead of keys for production callers.')
-param createApiKey bool = false
 
 @description('Organization name sent to Anthropic. Needed only if models includes an Anthropic (Claude) deployment.')
 param organizationName string = ''
@@ -77,17 +73,6 @@ param aliases array = [
   }
 ]
 
-@description('Deploy the Foundry project, storage and container registry for hosted agents.')
-param deployAgentResources bool = true
-
-@allowed([
-  'Basic'
-  'Standard'
-  'Premium'
-])
-@description('Container registry SKU for hosted-agent images.')
-param containerRegistrySku string = 'Basic'
-
 @description('Capture request and response payloads in gateway traces. Required for token usage (gen_ai.usage.*) and model attributes in traces. Stores prompt and completion text in Application Insights; turn off if policy forbids it.')
 param payloadCapture bool = true
 
@@ -97,10 +82,6 @@ var token = take(toLower(uniqueString(resourceGroup().id, namePrefix)), 6)
 var base = '${toLower(namePrefix)}-${token}'
 var gatewayName = 'aigw-${base}'
 var modelAccountName = 'aimodels-${base}'
-var agentAccountName = 'aiagents-${base}'
-var projectName = 'proj-${base}'
-var storageName = take('st${toLower(namePrefix)}${token}', 24)
-var registryName = take('acr${toLower(namePrefix)}${token}', 50)
 var tags = {
   'sovereign-ai-variant': 'provider-models-public-cloud'
 }
@@ -140,11 +121,11 @@ var apiFormatByFormat = {
 // Role definition IDs.
 var foundryUserRole = '53ca6127-db72-4b80-b1b0-d745d6d5456d'
 var cognitiveServicesUserRole = 'a97b65f3-24c7-4388-baec-2e87135dc908'
-var cognitiveServicesOpenAIUserRole = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
-var cognitiveServicesContributorRole = '25fbc0a9-bd7c-42a3-aa1a-3b75d497ee68'
-var storageBlobDataContributorRole = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-var acrPullRole = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var aiGatewayUserRole = 'caad7a21-134e-43f4-a550-c5ffc17e051c'
+
+// The account that runs the deployment always gets access; principalId adds one more.
+var deployerId = deployer().objectId
+var grantExtraPrincipal = !empty(principalId) && principalId != deployerId
 
 // ---------------------------------------------------------------------------
 // Gateway monitoring: Log Analytics and Application Insights.
@@ -224,7 +205,16 @@ resource deployments 'Microsoft.CognitiveServices/accounts/deployments@2026-09-0
   } : {})
 }]
 
-resource modelUserForPrincipal 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
+resource modelUserForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: modelAccount
+  name: guid(modelAccount.id, cognitiveServicesUserRole, deployerId)
+  properties: {
+    principalId: deployerId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRole)
+  }
+}
+
+resource modelUserForPrincipal 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (grantExtraPrincipal) {
   scope: modelAccount
   name: guid(modelAccount.id, cognitiveServicesUserRole, principalId)
   properties: {
@@ -249,17 +239,6 @@ resource aiGateway 'Microsoft.ApiManagement/aigateways@2025-09-01-preview' = {
     name: 'Premium'
   }
   properties: {}
-}
-
-#disable-next-line BCP081
-resource connectorNamespace 'Microsoft.Web/connectorGateways@2026-05-01-preview' = {
-  name: gatewayName
-  location: aiGatewayLocation
-  tags: tags
-  properties: {}
-  dependsOn: [
-    aiGateway
-  ]
 }
 
 #disable-next-line BCP081
@@ -353,7 +332,16 @@ resource gatewayAliases 'Microsoft.ApiManagement/aigateways/workspaces/aliases@2
   }
 }]
 
-resource gatewayUserForPrincipal 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
+resource gatewayUserForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: aiGateway
+  name: guid(aiGateway.id, aiGatewayUserRole, deployerId)
+  properties: {
+    principalId: deployerId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', aiGatewayUserRole)
+  }
+}
+
+resource gatewayUserForPrincipal 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (grantExtraPrincipal) {
   scope: aiGateway
   name: guid(aiGateway.id, aiGatewayUserRole, principalId)
   properties: {
@@ -363,239 +351,32 @@ resource gatewayUserForPrincipal 'Microsoft.Authorization/roleAssignments@2022-0
   }
 }
 
-#disable-next-line BCP081
-resource gatewayApiKey 'Microsoft.ApiManagement/aigateways/apiKeys@2025-09-01-preview' = if (createApiKey) {
-  parent: aiGateway
-  name: 'default'
-  properties: {
-    displayName: 'Default application key'
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Foundry project and hosted-agent resources.
+// Outputs: what a consumer needs. Production callers use an Entra token for the gateway
+// audience plus an AI Gateway role. Every gateway also has a built-in "master" API key for
+// testing; getApiKeyCommand reads it (the key itself is never output).
 // ---------------------------------------------------------------------------
-resource agentLogs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = if (deployAgentResources) {
-  name: '${agentAccountName}-logs'
-  location: location
-  tags: tags
-  properties: {
-    retentionInDays: 30
-    sku: {
-      name: 'PerGB2018'
-    }
-    features: {
-      enableLogAccessUsingOnlyResourcePermissions: true
-    }
-  }
-}
+var gatewayEndpoint = 'https://${aiGateway.properties.?frontend.?defaultHostname ?? ''}/'
+var chatUrl = '${gatewayEndpoint}default/models/openai/v1/chat/completions'
+var tokenAudience = 'https://azure-api.net/aigateway'
+var aliasNames = map(allAliases, a => a.name)
+var firstModel = contains(aliasNames, 'gpt-latest') || empty(aliasNames) ? 'gpt-latest' : aliasNames[0]
 
-resource agentInsights 'Microsoft.Insights/components@2020-02-02' = if (deployAgentResources) {
-  name: '${agentAccountName}-insights'
-  location: location
-  kind: 'web'
-  tags: tags
-  properties: {
-    Application_Type: 'web'
-    IngestionMode: 'LogAnalytics'
-    WorkspaceResourceId: agentLogs.id
-  }
-}
-
-resource agentAccount 'Microsoft.CognitiveServices/accounts@2026-09-01' = if (deployAgentResources) {
-  name: agentAccountName
-  location: location
-  tags: tags
-  kind: 'AIServices'
-  sku: {
-    name: 'S0'
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    allowProjectManagement: true
-    customSubDomainName: agentAccountName
-    disableLocalAuth: true
-    publicNetworkAccess: 'Enabled'
-    networkAcls: {
-      defaultAction: 'Allow'
-    }
-  }
-}
-
-resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = if (deployAgentResources) {
-  name: storageName
-  location: location
-  tags: tags
-  kind: 'StorageV2'
-  sku: {
-    name: 'Standard_LRS'
-  }
-  properties: {
-    minimumTlsVersion: 'TLS1_2'
-    allowBlobPublicAccess: false
-    allowSharedKeyAccess: false
-    supportsHttpsTrafficOnly: true
-  }
-}
-
-resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = if (deployAgentResources) {
-  name: registryName
-  location: location
-  tags: tags
-  sku: {
-    name: containerRegistrySku
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    adminUserEnabled: false
-  }
-}
-
-resource agentInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2026-09-01' = if (deployAgentResources) {
-  parent: agentAccount
-  name: '${agentAccountName}-insights'
-  properties: {
-    category: 'AppInsights'
-    authType: 'ApiKey'
-    isSharedToAll: false
-    target: agentInsights.id
-    credentials: {
-      key: agentInsights!.properties.ConnectionString
-    }
-    metadata: {
-      ApiType: 'Azure'
-      ResourceId: agentInsights.id
-    }
-  }
-}
-
-resource project 'Microsoft.CognitiveServices/accounts/projects@2026-09-01' = if (deployAgentResources) {
-  parent: agentAccount
-  name: projectName
-  location: location
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    displayName: 'Sovereign AI provider models'
-    description: 'Foundry project for hosted agents that call models through the AI Gateway.'
-  }
-}
-
-resource projectStorageConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2026-09-01' = if (deployAgentResources) {
-  parent: project
-  name: storageName
-  properties: {
-    category: 'AzureStorageAccount'
-    target: storage!.properties.primaryEndpoints.blob
-    authType: 'AAD'
-    metadata: {
-      ApiType: 'Azure'
-      ResourceId: storage.id
-      location: location
-    }
-  }
-}
-
-resource projectRegistryConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2026-09-01' = if (deployAgentResources) {
-  parent: project
-  name: '${registryName}-conn'
-  dependsOn: [
-    projectAcrPull
-  ]
-  properties: {
-    category: 'ContainerRegistry'
-    target: registry!.properties.loginServer
-    authType: 'ManagedIdentity'
-    isSharedToAll: true
-    credentials: {
-      clientId: project!.identity.principalId
-      resourceId: registry.id
-    }
-    metadata: {
-      ResourceId: registry.id
-    }
-  }
-}
-
-resource projectCognitiveServicesUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAgentResources) {
-  scope: agentAccount
-  name: guid(agentAccountName, projectName, cognitiveServicesUserRole)
-  properties: {
-    principalId: project!.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRole)
-  }
-}
-
-resource projectOpenAIUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAgentResources) {
-  scope: agentAccount
-  name: guid(agentAccountName, projectName, cognitiveServicesOpenAIUserRole)
-  properties: {
-    principalId: project!.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAIUserRole)
-  }
-}
-
-resource projectContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAgentResources) {
-  scope: agentAccount
-  name: guid(agentAccountName, projectName, cognitiveServicesContributorRole)
-  properties: {
-    principalId: project!.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesContributorRole)
-  }
-}
-
-resource projectBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAgentResources) {
-  scope: storage
-  name: guid(storageName, projectName, storageBlobDataContributorRole)
-  properties: {
-    principalId: project!.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRole)
-  }
-}
-
-resource projectAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAgentResources) {
-  scope: registry
-  name: guid(registryName, projectName, acrPullRole)
-  properties: {
-    principalId: project!.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRole)
-  }
-}
-
-resource agentUserForPrincipal 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAgentResources && !empty(principalId)) {
-  scope: agentAccount
-  name: guid(agentAccountName, foundryUserRole, principalId)
-  properties: {
-    principalId: principalId
-    principalType: principalType
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', foundryUserRole)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Outputs. Callers get an Entra token for audience https://azure-api.net/aigateway and need an
-// AI Gateway role. If createApiKey is true, read the key (it is never output) with:
-// az rest --method post --url "https://management.azure.com<aiGatewayId>/apiKeys/default/listSecrets?api-version=2025-09-01-preview".
-// ---------------------------------------------------------------------------
 output aiGatewayName string = aiGateway.name
 output aiGatewayId string = aiGateway.id
-output aiGatewayEndpoint string = 'https://${aiGateway.properties.?frontend.?defaultHostname ?? ''}/'
-output modelAccountName string = modelAccount.name
-output modelDeployments array = [for m in effectiveModels: m.?deploymentName ?? m.name]
+output aiGatewayEndpoint string = gatewayEndpoint
+output chatCompletionsUrl string = chatUrl
+output responsesUrl string = '${gatewayEndpoint}default/models/openai/v1/responses'
+output tokenAudience string = tokenAudience
+output gatewayModelNames array = aliasNames
 output foundryOnlyDeployments array = [for m in filter(effectiveModels, m => !(m.?gateway ?? true)): m.?deploymentName ?? m.name]
-output modelAccountEndpoint string = modelAccount.properties.endpoint
-output aliases array = [for a in allAliases: a.name]
+output foundryEndpoint string = modelAccount.properties.endpoint
+output accessGrantedTo array = grantExtraPrincipal ? [deployerId, principalId] : [deployerId]
+output tryIt string = 'TOKEN=$(az account get-access-token --resource ${tokenAudience} --query accessToken -o tsv); curl -s ${chatUrl} -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d \'{"model":"${firstModel}","messages":[{"role":"user","content":"Hello"}]}\''
+output getApiKeyCommand string = 'az rest --method post --url "${aiGateway.id}/apiKeys/master/listSecrets?api-version=2025-09-01-preview" --query primaryKey -o tsv'
+output tryItWithKey string = 'curl -s ${chatUrl} -H "Api-Key: <key from getApiKeyCommand>" -H "Content-Type: application/json" -d \'{"model":"${firstModel}","messages":[{"role":"user","content":"Hello"}]}\''
+output grantAccessCommand string = 'az role assignment create --role "AI Gateway User" --assignee <object-id> --scope ${aiGateway.id}'
 output gatewayAppInsightsName string = gatewayInsights.name
-output foundryProjectEndpoint string = deployAgentResources ? 'https://${agentAccountName}.services.ai.azure.com/api/projects/${projectName}' : ''
-output containerRegistryLoginServer string = deployAgentResources ? registry!.properties.loginServer : ''
+@description('AI Gateway portal. Select this gateway in the list once; the portal remembers it.')
+output aiGatewayPortalUrl string = 'https://ai.gateway.azure.com/ai-gateways'
+output azurePortalUrl string = 'https://portal.azure.com/#@${tenant().tenantId}/resource${aiGateway.id}/overview'

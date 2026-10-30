@@ -4,22 +4,22 @@
 
 This template is the reference implementation of the **provider models in public
 cloud** variant from the Sovereign AI briefing. Applications call provider-hosted
-models in Microsoft Foundry through one AI Gateway endpoint. The gateway applies access control and records telemetry.
+models in Microsoft Foundry through one AI Gateway endpoint. The gateway controls
+access and traces every call.
 
 It follows Azure-Samples [AI-Gateway `aigw-foundry-models`](https://github.com/Azure-Samples/AI-Gateway/tree/main/labs/aigw-foundry-models)
 and [simple-foundry-hosted-agent-python-aigateway](https://github.com/Azure-Samples/simple-foundry-hosted-agent-python-aigateway),
-deployed into one resource group.
-
-The button opens a portal form (`createUiDefinition.json`) with a model checklist,
-one capacity setting and access options, instead of raw JSON parameters.
+scoped to model access in one resource group. The button opens a portal form with a
+model checklist, one capacity setting and access options.
 
 ## What it deploys
 
-| Component | Resources |
+| Resource | Purpose |
 |---|---|
-| AI Gateway | AI Gateway (Premium, preview), connector namespace, Application Insights, Log Analytics workspace |
-| Foundry models | Azure AI Services account with local keys disabled, one Global Standard deployment per model |
-| Foundry agents | Azure AI Services account, Foundry project, storage account, container registry, Application Insights, Log Analytics workspace |
+| AI Gateway (Premium, preview) | One endpoint for all models, Entra ID access control, aliases with failover |
+| Azure AI Services account (Foundry) | Model deployments; local keys disabled, so only the gateway and Entra callers reach it |
+| Application Insights | Gateway traces |
+| Log Analytics workspace | Storage for the traces |
 
 Default models:
 
@@ -28,63 +28,70 @@ Default models:
 | OpenAI | gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra | AI Gateway |
 | Microsoft | Microsoft-Decision-1 (preview), deployed as `decision-1` | Foundry endpoint only |
 
-AI Gateway registers chat, Responses, completions, embeddings, image and Anthropic
-Messages models. It does not route decision models yet, so `decision-1` is called on
-the Foundry model account endpoint (output `modelAccountEndpoint`) with Microsoft
-Entra ID. Set `gateway: false` on any other model you want in Foundry only.
+Every gateway model gets an alias with its own name, and `gpt-latest` fails over from
+gpt-6.1-sol to gpt-6-sol. AI Gateway does not route decision models yet, so
+`decision-1` is called on the Foundry endpoint with Microsoft Entra ID.
 
-Anthropic Claude models are not deployed by default. To add them, see
-[Add Claude models](#add-claude-models).
+## Use the deployment
 
-Callers reach models only through gateway aliases. Every deployment gets an alias
-with its own name, such as `gpt-6-luna`. The alias `gpt-latest` fails over from
-gpt-6.1-sol to gpt-6-sol when the first is unavailable or out of quota.
+Open the deployment's **Outputs** in the Azure portal. They list everything a consumer
+needs:
+
+| Output | Use |
+|---|---|
+| `chatCompletionsUrl`, `responsesUrl` | OpenAI Chat Completions and Responses endpoints on the gateway |
+| `gatewayModelNames` | Values for the request's `model` field |
+| `tokenAudience` | Audience for the Entra ID access token |
+| `tryIt` | A ready-to-run curl call with an Entra token |
+| `getApiKeyCommand`, `tryItWithKey` | Read the built-in test key and call with it |
+| `foundryEndpoint`, `foundryOnlyDeployments` | Direct Foundry access for `decision-1` |
+| `aiGatewayPortalUrl`, `azurePortalUrl` | Where to manage the gateway |
+| `grantAccessCommand` | Give another user, group or app access |
+
+Call a model with Entra ID, the recommended way:
+
+```bash
+TOKEN=$(az account get-access-token --resource https://azure-api.net/aigateway --query accessToken -o tsv)
+curl -s "<chatCompletionsUrl>" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"model":"gpt-latest","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+The account that ran the deployment can call immediately. Grant others the
+**AI Gateway User** role with `grantAccessCommand`, or the `principalId` parameter.
+
+### Test with an API key
+
+Every AI Gateway has a built-in `master` key with access to all models. Use it for
+quick tests only; Microsoft recommends Entra ID for production callers. Read it with
+`getApiKeyCommand`, or in the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways)
+under **Access > Keys**, and send it in the `Api-Key` header (not `Authorization`).
+
+### Manage the gateway
+
+The AI Gateway portal at <https://ai.gateway.azure.com/ai-gateways> lists the gateways
+you can access. Select this one once; the portal remembers your choice. It has no
+link that opens a specific gateway directly. `azurePortalUrl` opens the gateway
+resource in the Azure portal.
 
 ## How access works
 
-- **Inbound.** Callers authenticate to the gateway with Microsoft Entra ID. Request a
-  token for the audience `https://azure-api.net/aigateway` and grant the caller an
-  AI Gateway role (AI Gateway User, AI Gateway Models User or AI Gateway Tools User).
-  The `principalId` parameter assigns AI Gateway User to one user, group or service
-  principal. A gateway API key is created only when `createApiKey` is true.
-- **Outbound.** The gateway reaches Foundry with its system-assigned managed
-  identity, which holds the Foundry User role on the model account. No provider
-  keys are stored.
-- **Telemetry.** The gateway sends a trace for every call to its Application
-  Insights resource: the inbound request, the outbound Foundry call and the managed
-  identity token request, linked by operation ID. Payload capture is on by default
-  because the gateway records token usage (`gen_ai.usage.input_tokens`,
-  `gen_ai.usage.output_tokens`) and the serving model (`gen_ai.response.model`) only
-  when it captures payloads. Captured traces include request and response bodies,
-  so prompt and completion text is stored in Application Insights. Set
-  `payloadCapture` to false if your data policy forbids that; traces then keep
-  timing, status and sizes but report zero tokens.
+- **Inbound.** Callers use an Entra ID token for `https://azure-api.net/aigateway` and
+  need an AI Gateway role: AI Gateway User, AI Gateway Models User or AI Gateway Tools
+  User. The built-in key is for testing.
+- **Outbound.** The gateway reaches Foundry with its system-assigned managed identity,
+  which holds the Foundry User role. No provider keys are stored.
 
-## Before you deploy
+## Traces
 
-- You need Owner, or Contributor plus User Access Administrator, on the target
-  resource group. The template creates role assignments.
-- Pick a region with AI Gateway preview support and the models you want: East US 2
-  or Sweden Central.
-- Check Global Standard quota for each model in that region. Lower the capacity,
-  or deselect models, if quota is short. From the CLI, use `selectedModels` and
-  `capacityOverride`, or edit `models`.
-
-## Deploy with the Azure CLI
-
-```bash
-az group create -n rg-sovai-provider-cloud -l eastus2
-az deployment group create -g rg-sovai-provider-cloud -f main.bicep \
-  -p principalId="$(az ad signed-in-user show --query id -o tsv)"
-```
-
-`azuredeploy.json` is compiled from `main.bicep`. After editing the Bicep, rebuild it:
-
-```bash
-az bicep build -f main.bicep --outfile azuredeploy.json
-```
-
-## Query traces
+Every call produces a trace in Application Insights: the inbound request, the
+outbound Foundry call and the managed identity token request, linked by operation ID.
+Payload capture is on by default because the gateway records token usage
+(`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`) and the serving model
+(`gen_ai.response.model`) only when it captures payloads. Captured traces include
+request and response bodies, so prompt and completion text is stored in Application
+Insights. Turn `payloadCapture` off if your data policy forbids that; traces then keep
+timing, status and sizes but report zero tokens.
 
 ```kusto
 requests
@@ -96,13 +103,27 @@ requests
 | order by timestamp desc
 ```
 
-## Call a model
+## Before you deploy
+
+- You need Owner, or Contributor plus User Access Administrator, on the target
+  resource group. The template creates role assignments.
+- Pick East US 2 or Sweden Central, where AI Gateway is in preview.
+- Check Global Standard quota for each model in that region. Lower the capacity, or
+  deselect models, if quota is short.
+
+## Deploy with the Azure CLI
 
 ```bash
-TOKEN=$(az account get-access-token --resource https://azure-api.net/aigateway --query accessToken -o tsv)
-curl "<aiGatewayEndpoint>default/models/openai/v1/chat/completions" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"model":"gpt-latest","messages":[{"role":"user","content":"Hello"}]}'
+az group create -n rg-sovai-provider-cloud -l eastus2
+az deployment group create -g rg-sovai-provider-cloud -f main.bicep
+```
+
+Optional parameters: `selectedModels` (for example `["gpt-6.1-sol","decision-1"]`),
+`capacityOverride`, `principalId`, `payloadCapture`, or a custom `models` list.
+`azuredeploy.json` is compiled from `main.bicep`:
+
+```bash
+az bicep build -f main.bicep --outfile azuredeploy.json
 ```
 
 ## Add Claude models

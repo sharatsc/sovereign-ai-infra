@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "14728777812138070329"
+      "templateHash": "17008740600058549464"
     }
   },
   "parameters": {
@@ -17,7 +17,7 @@
         "swedencentral"
       ],
       "metadata": {
-        "description": "Region for Foundry, storage, container registry and monitoring. Claude models need a region that offers them."
+        "description": "Region for Foundry and monitoring. Claude models need a region that offers them."
       }
     },
     "aiGatewayLocation": {
@@ -44,7 +44,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Optional Entra object ID of a user, group or service principal. It gets the AI Gateway User role (call models and tools) and Foundry developer access. Leave empty to skip."
+        "description": "Optional extra Entra object ID (user, group or service principal) to grant access. The account that runs the deployment always gets access."
       }
     },
     "principalType": {
@@ -57,13 +57,6 @@
       ],
       "metadata": {
         "description": "Type of principalId."
-      }
-    },
-    "createApiKey": {
-      "type": "bool",
-      "defaultValue": false,
-      "metadata": {
-        "description": "Create a gateway API key. Microsoft recommends Entra ID and Azure RBAC instead of keys for production callers."
       }
     },
     "organizationName": {
@@ -164,25 +157,6 @@
         "description": "Gateway aliases with failover. Each backend names a deployment from models. Backends whose model is not deployed are dropped, and aliases left with no backend are skipped."
       }
     },
-    "deployAgentResources": {
-      "type": "bool",
-      "defaultValue": true,
-      "metadata": {
-        "description": "Deploy the Foundry project, storage and container registry for hosted agents."
-      }
-    },
-    "containerRegistrySku": {
-      "type": "string",
-      "defaultValue": "Basic",
-      "allowedValues": [
-        "Basic",
-        "Standard",
-        "Premium"
-      ],
-      "metadata": {
-        "description": "Container registry SKU for hosted-agent images."
-      }
-    },
     "payloadCapture": {
       "type": "bool",
       "defaultValue": true,
@@ -214,10 +188,6 @@
     "base": "[format('{0}-{1}', toLower(parameters('namePrefix')), variables('token'))]",
     "gatewayName": "[format('aigw-{0}', variables('base'))]",
     "modelAccountName": "[format('aimodels-{0}', variables('base'))]",
-    "agentAccountName": "[format('aiagents-{0}', variables('base'))]",
-    "projectName": "[format('proj-{0}', variables('base'))]",
-    "storageName": "[take(format('st{0}{1}', toLower(parameters('namePrefix')), variables('token')), 24)]",
-    "registryName": "[take(format('acr{0}{1}', toLower(parameters('namePrefix')), variables('token')), 50)]",
     "tags": {
       "sovereign-ai-variant": "provider-models-public-cloud"
     },
@@ -242,11 +212,12 @@
     },
     "foundryUserRole": "53ca6127-db72-4b80-b1b0-d745d6d5456d",
     "cognitiveServicesUserRole": "a97b65f3-24c7-4388-baec-2e87135dc908",
-    "cognitiveServicesOpenAIUserRole": "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd",
-    "cognitiveServicesContributorRole": "25fbc0a9-bd7c-42a3-aa1a-3b75d497ee68",
-    "storageBlobDataContributorRole": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-    "acrPullRole": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
-    "aiGatewayUserRole": "caad7a21-134e-43f4-a550-c5ffc17e051c"
+    "aiGatewayUserRole": "caad7a21-134e-43f4-a550-c5ffc17e051c",
+    "deployerId": "[deployer().objectId]",
+    "grantExtraPrincipal": "[and(not(empty(parameters('principalId'))), not(equals(parameters('principalId'), variables('deployerId'))))]",
+    "tokenAudience": "https://azure-api.net/aigateway",
+    "aliasNames": "[map(variables('allAliases'), lambda('a', lambdaVariables('a').name))]",
+    "firstModel": "[if(or(contains(variables('aliasNames'), 'gpt-latest'), empty(variables('aliasNames'))), 'gpt-latest', variables('aliasNames')[0])]"
   },
   "resources": [
     {
@@ -324,7 +295,20 @@
       ]
     },
     {
-      "condition": "[not(empty(parameters('principalId')))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), variables('cognitiveServicesUserRole'), variables('deployerId'))]",
+      "properties": {
+        "principalId": "[variables('deployerId')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesUserRole'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('grantExtraPrincipal')]",
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]",
@@ -351,17 +335,6 @@
         "name": "Premium"
       },
       "properties": {}
-    },
-    {
-      "type": "Microsoft.Web/connectorGateways",
-      "apiVersion": "2026-05-01-preview",
-      "name": "[variables('gatewayName')]",
-      "location": "[parameters('aiGatewayLocation')]",
-      "tags": "[variables('tags')]",
-      "properties": {},
-      "dependsOn": [
-        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
-      ]
     },
     {
       "type": "Microsoft.Authorization/roleAssignments",
@@ -476,7 +449,20 @@
       ]
     },
     {
-      "condition": "[not(empty(parameters('principalId')))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+      "name": "[guid(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), variables('aiGatewayUserRole'), variables('deployerId'))]",
+      "properties": {
+        "principalId": "[variables('deployerId')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('aiGatewayUserRole'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('grantExtraPrincipal')]",
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
@@ -488,291 +474,6 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('createApiKey')]",
-      "type": "Microsoft.ApiManagement/aigateways/apiKeys",
-      "apiVersion": "2025-09-01-preview",
-      "name": "[format('{0}/{1}', variables('gatewayName'), 'default')]",
-      "properties": {
-        "displayName": "Default application key"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.OperationalInsights/workspaces",
-      "apiVersion": "2023-09-01",
-      "name": "[format('{0}-logs', variables('agentAccountName'))]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('tags')]",
-      "properties": {
-        "retentionInDays": 30,
-        "sku": {
-          "name": "PerGB2018"
-        },
-        "features": {
-          "enableLogAccessUsingOnlyResourcePermissions": true
-        }
-      }
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Insights/components",
-      "apiVersion": "2020-02-02",
-      "name": "[format('{0}-insights', variables('agentAccountName'))]",
-      "location": "[parameters('location')]",
-      "kind": "web",
-      "tags": "[variables('tags')]",
-      "properties": {
-        "Application_Type": "web",
-        "IngestionMode": "LogAnalytics",
-        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', variables('agentAccountName')))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', variables('agentAccountName')))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.CognitiveServices/accounts",
-      "apiVersion": "2026-09-01",
-      "name": "[variables('agentAccountName')]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('tags')]",
-      "kind": "AIServices",
-      "sku": {
-        "name": "S0"
-      },
-      "identity": {
-        "type": "SystemAssigned"
-      },
-      "properties": {
-        "allowProjectManagement": true,
-        "customSubDomainName": "[variables('agentAccountName')]",
-        "disableLocalAuth": true,
-        "publicNetworkAccess": "Enabled",
-        "networkAcls": {
-          "defaultAction": "Allow"
-        }
-      }
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Storage/storageAccounts",
-      "apiVersion": "2024-01-01",
-      "name": "[variables('storageName')]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('tags')]",
-      "kind": "StorageV2",
-      "sku": {
-        "name": "Standard_LRS"
-      },
-      "properties": {
-        "minimumTlsVersion": "TLS1_2",
-        "allowBlobPublicAccess": false,
-        "allowSharedKeyAccess": false,
-        "supportsHttpsTrafficOnly": true
-      }
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.ContainerRegistry/registries",
-      "apiVersion": "2023-07-01",
-      "name": "[variables('registryName')]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('tags')]",
-      "sku": {
-        "name": "[parameters('containerRegistrySku')]"
-      },
-      "identity": {
-        "type": "SystemAssigned"
-      },
-      "properties": {
-        "adminUserEnabled": false
-      }
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.CognitiveServices/accounts/connections",
-      "apiVersion": "2026-09-01",
-      "name": "[format('{0}/{1}', variables('agentAccountName'), format('{0}-insights', variables('agentAccountName')))]",
-      "properties": {
-        "category": "AppInsights",
-        "authType": "ApiKey",
-        "isSharedToAll": false,
-        "target": "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('agentAccountName')))]",
-        "credentials": {
-          "key": "[reference(resourceId('Microsoft.Insights/components', format('{0}-insights', variables('agentAccountName'))), '2020-02-02').ConnectionString]"
-        },
-        "metadata": {
-          "ApiType": "Azure",
-          "ResourceId": "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('agentAccountName')))]"
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-        "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('agentAccountName')))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.CognitiveServices/accounts/projects",
-      "apiVersion": "2026-09-01",
-      "name": "[format('{0}/{1}', variables('agentAccountName'), variables('projectName'))]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('tags')]",
-      "identity": {
-        "type": "SystemAssigned"
-      },
-      "properties": {
-        "displayName": "Sovereign AI provider models",
-        "description": "Foundry project for hosted agents that call models through the AI Gateway."
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.CognitiveServices/accounts/projects/connections",
-      "apiVersion": "2026-09-01",
-      "name": "[format('{0}/{1}/{2}', variables('agentAccountName'), variables('projectName'), variables('storageName'))]",
-      "properties": {
-        "category": "AzureStorageAccount",
-        "target": "[reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), '2024-01-01').primaryEndpoints.blob]",
-        "authType": "AAD",
-        "metadata": {
-          "ApiType": "Azure",
-          "ResourceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
-          "location": "[parameters('location')]"
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.CognitiveServices/accounts/projects/connections",
-      "apiVersion": "2026-09-01",
-      "name": "[format('{0}/{1}/{2}', variables('agentAccountName'), variables('projectName'), format('{0}-conn', variables('registryName')))]",
-      "properties": {
-        "category": "ContainerRegistry",
-        "target": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('registryName')), '2023-07-01').loginServer]",
-        "authType": "ManagedIdentity",
-        "isSharedToAll": true,
-        "credentials": {
-          "clientId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName')), '2026-09-01', 'full').identity.principalId]",
-          "resourceId": "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]"
-        },
-        "metadata": {
-          "ResourceId": "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]"
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]",
-        "[extensionResourceId(resourceId('Microsoft.ContainerRegistry/registries', variables('registryName')), 'Microsoft.Authorization/roleAssignments', guid(variables('registryName'), variables('projectName'), variables('acrPullRole')))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-      "name": "[guid(variables('agentAccountName'), variables('projectName'), variables('cognitiveServicesUserRole'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName')), '2026-09-01', 'full').identity.principalId]",
-        "principalType": "ServicePrincipal",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesUserRole'))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-      "name": "[guid(variables('agentAccountName'), variables('projectName'), variables('cognitiveServicesOpenAIUserRole'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName')), '2026-09-01', 'full').identity.principalId]",
-        "principalType": "ServicePrincipal",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesOpenAIUserRole'))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-      "name": "[guid(variables('agentAccountName'), variables('projectName'), variables('cognitiveServicesContributorRole'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName')), '2026-09-01', 'full').identity.principalId]",
-        "principalType": "ServicePrincipal",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesContributorRole'))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
-      "name": "[guid(variables('storageName'), variables('projectName'), variables('storageBlobDataContributorRole'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName')), '2026-09-01', 'full').identity.principalId]",
-        "principalType": "ServicePrincipal",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRole'))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAgentResources')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]",
-      "name": "[guid(variables('registryName'), variables('projectName'), variables('acrPullRole'))]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName')), '2026-09-01', 'full').identity.principalId]",
-        "principalType": "ServicePrincipal",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('acrPullRole'))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('agentAccountName'), variables('projectName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]"
-      ]
-    },
-    {
-      "condition": "[and(parameters('deployAgentResources'), not(empty(parameters('principalId'))))]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]",
-      "name": "[guid(variables('agentAccountName'), variables('foundryUserRole'), parameters('principalId'))]",
-      "properties": {
-        "principalId": "[parameters('principalId')]",
-        "principalType": "[parameters('principalType')]",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('foundryUserRole'))]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('agentAccountName'))]"
       ]
     }
   ],
@@ -789,16 +490,21 @@
       "type": "string",
       "value": "[format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))]"
     },
-    "modelAccountName": {
+    "chatCompletionsUrl": {
       "type": "string",
-      "value": "[variables('modelAccountName')]"
+      "value": "[format('{0}default/models/openai/v1/chat/completions', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), '')))]"
     },
-    "modelDeployments": {
+    "responsesUrl": {
+      "type": "string",
+      "value": "[format('{0}default/models/openai/v1/responses', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), '')))]"
+    },
+    "tokenAudience": {
+      "type": "string",
+      "value": "[variables('tokenAudience')]"
+    },
+    "gatewayModelNames": {
       "type": "array",
-      "copy": {
-        "count": "[length(variables('effectiveModels'))]",
-        "input": "[coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name)]"
-      }
+      "value": "[variables('aliasNames')]"
     },
     "foundryOnlyDeployments": {
       "type": "array",
@@ -807,28 +513,44 @@
         "input": "[coalesce(tryGet(filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()], 'deploymentName'), filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()].name)]"
       }
     },
-    "modelAccountEndpoint": {
+    "foundryEndpoint": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), '2026-09-01').endpoint]"
     },
-    "aliases": {
+    "accessGrantedTo": {
       "type": "array",
-      "copy": {
-        "count": "[length(variables('allAliases'))]",
-        "input": "[variables('allAliases')[copyIndex()].name]"
-      }
+      "value": "[if(variables('grantExtraPrincipal'), createArray(variables('deployerId'), parameters('principalId')), createArray(variables('deployerId')))]"
+    },
+    "tryIt": {
+      "type": "string",
+      "value": "[format('TOKEN=$(az account get-access-token --resource {0} --query accessToken -o tsv); curl -s {1} -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d ''{{\"model\":\"{2}\",\"messages\":[{{\"role\":\"user\",\"content\":\"Hello\"}}]}}''', variables('tokenAudience'), format('{0}default/models/openai/v1/chat/completions', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), variables('firstModel'))]"
+    },
+    "getApiKeyCommand": {
+      "type": "string",
+      "value": "[format('az rest --method post --url \"{0}/apiKeys/master/listSecrets?api-version=2025-09-01-preview\" --query primaryKey -o tsv', resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')))]"
+    },
+    "tryItWithKey": {
+      "type": "string",
+      "value": "[format('curl -s {0} -H \"Api-Key: <key from getApiKeyCommand>\" -H \"Content-Type: application/json\" -d ''{{\"model\":\"{1}\",\"messages\":[{{\"role\":\"user\",\"content\":\"Hello\"}}]}}''', format('{0}default/models/openai/v1/chat/completions', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), variables('firstModel'))]"
+    },
+    "grantAccessCommand": {
+      "type": "string",
+      "value": "[format('az role assignment create --role \"AI Gateway User\" --assignee <object-id> --scope {0}', resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')))]"
     },
     "gatewayAppInsightsName": {
       "type": "string",
       "value": "[format('{0}-insights', variables('gatewayName'))]"
     },
-    "foundryProjectEndpoint": {
+    "aiGatewayPortalUrl": {
       "type": "string",
-      "value": "[if(parameters('deployAgentResources'), format('https://{0}.services.ai.azure.com/api/projects/{1}', variables('agentAccountName'), variables('projectName')), '')]"
+      "metadata": {
+        "description": "AI Gateway portal. Select this gateway in the list once; the portal remembers it."
+      },
+      "value": "https://ai.gateway.azure.com/ai-gateways"
     },
-    "containerRegistryLoginServer": {
+    "azurePortalUrl": {
       "type": "string",
-      "value": "[if(parameters('deployAgentResources'), reference(resourceId('Microsoft.ContainerRegistry/registries', variables('registryName')), '2023-07-01').loginServer, '')]"
+      "value": "[format('https://portal.azure.com/#@{0}/resource{1}/overview', tenant().tenantId, resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')))]"
     }
   }
 }

@@ -5,7 +5,7 @@
   "parameters": {
     "config": {
       "basics": {
-        "description": "Deploy the **provider models in public cloud** reference: an AI Gateway in front of Microsoft Foundry models, with Application Insights telemetry and a Foundry project for hosted agents. Callers sign in with Microsoft Entra ID.",
+        "description": "Deploy the **provider models in public cloud** reference: an AI Gateway in front of Microsoft Foundry models, with Application Insights traces. You get access automatically; callers sign in with Microsoft Entra ID.",
         "location": {
           "label": "Resource group region",
           "toolTip": "Region of the resource group itself. Resources use the Deployment region below.",
@@ -144,14 +144,14 @@
             "type": "Microsoft.Common.InfoBox",
             "options": {
               "style": "Info",
-              "text": "Callers authenticate to the gateway with Microsoft Entra ID and need an AI Gateway role. To find your own object ID, run: az ad signed-in-user show --query id -o tsv"
+              "text": "You (the account running this deployment) get the AI Gateway User role automatically, so you can call models with an Entra token. Every gateway also has a built-in master API key for quick tests; the deployment outputs show how to read it. Optionally grant one more user, group or service principal. To find an object ID, run: az ad user show --id <email> --query id -o tsv"
             }
           },
           {
             "name": "principalId",
             "type": "Microsoft.Common.TextBox",
-            "label": "Object ID to grant access (optional)",
-            "toolTip": "Entra object ID of a user, group or service principal. It gets the AI Gateway User role and Foundry developer access.",
+            "label": "Additional object ID (optional)",
+            "toolTip": "Entra object ID of another user, group or service principal to grant the AI Gateway User role and Foundry access.",
             "constraints": {
               "required": false,
               "regex": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
@@ -180,45 +180,19 @@
                 }
               ]
             }
-          },
-          {
-            "name": "createApiKey",
-            "type": "Microsoft.Common.CheckBox",
-            "label": "Also create a gateway API key (not recommended for production)"
           }
         ]
       },
       {
-        "name": "agents",
-        "label": "Agents and telemetry",
+        "name": "telemetry",
+        "label": "Telemetry",
         "elements": [
           {
-            "name": "deployAgentResources",
-            "type": "Microsoft.Common.CheckBox",
-            "label": "Deploy a Foundry project, storage and container registry for hosted agents",
-            "defaultValue": true
-          },
-          {
-            "name": "containerRegistrySku",
-            "type": "Microsoft.Common.DropDown",
-            "label": "Container registry SKU",
-            "defaultValue": "Basic",
-            "visible": "[steps('agents').deployAgentResources]",
-            "constraints": {
-              "allowedValues": [
-                {
-                  "label": "Basic",
-                  "value": "Basic"
-                },
-                {
-                  "label": "Standard",
-                  "value": "Standard"
-                },
-                {
-                  "label": "Premium",
-                  "value": "Premium"
-                }
-              ]
+            "name": "telemetryInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "style": "Info",
+              "text": "Every call is traced to Application Insights. Payload capture adds token usage and the serving model to traces, and stores request and response text."
             }
           },
           {
@@ -238,10 +212,7 @@
       "capacityOverride": "[steps('models').capacity]",
       "principalId": "[steps('access').principalId]",
       "principalType": "[if(empty(steps('access').principalId), 'User', steps('access').principalType)]",
-      "createApiKey": "[steps('access').createApiKey]",
-      "deployAgentResources": "[steps('agents').deployAgentResources]",
-      "containerRegistrySku": "[if(steps('agents').deployAgentResources, steps('agents').containerRegistrySku, 'Basic')]",
-      "payloadCapture": "[steps('agents').payloadCapture]"
+      "payloadCapture": "[steps('telemetry').payloadCapture]"
     }
   }
 }
