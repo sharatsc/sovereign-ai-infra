@@ -1,6 +1,7 @@
 // Sovereign AI reference: provider models in public cloud (Azure).
-// Deploys an AI Gateway in front of Microsoft Foundry model deployments (OpenAI and
-// Anthropic Claude), Application Insights telemetry for the gateway, and the Foundry
+// Deploys an AI Gateway in front of Microsoft Foundry model deployments (OpenAI by default;
+// Anthropic Claude is supported through the models parameter), Application Insights
+// telemetry for the gateway, and the Foundry
 // project resources for hosted agents. Based on Azure-Samples/AI-Gateway
 // (labs/aigw-foundry-models) and Azure-Samples/simple-foundry-hosted-agent-python-aigateway.
 targetScope = 'resourceGroup'
@@ -38,24 +39,23 @@ param principalType string = 'User'
 @description('Create a gateway API key. Microsoft recommends Entra ID and Azure RBAC instead of keys for production callers.')
 param createApiKey bool = false
 
-@description('Organization name sent to Anthropic for Claude deployments (required by Foundry).')
-param organizationName string
+@description('Organization name sent to Anthropic. Needed only if models includes an Anthropic (Claude) deployment.')
+param organizationName string = ''
 
-@description('Industry sent to Anthropic for Claude deployments (required by Foundry).')
+@description('Industry sent to Anthropic. Needed only for Anthropic (Claude) deployments.')
 param industry string = 'Financial Services'
 
-@description('Two-letter country code sent to Anthropic for Claude deployments (required by Foundry).')
+@description('Two-letter country code sent to Anthropic. Needed only for Anthropic (Claude) deployments.')
 param countryCode string = 'US'
 
-@description('Foundry model deployments. format is OpenAI or Anthropic; capacity is the Global Standard capacity.')
+@description('Foundry model deployments. Fields: name, format (OpenAI, Anthropic or Microsoft), version, capacity; optional deploymentName (defaults to name), sku (defaults to GlobalStandard) and gateway (defaults to true; false deploys in Foundry only). Claude (Anthropic) deployments need a subscription that can buy the Anthropic Marketplace offer, plus organizationName.')
 param models array = [
   { name: 'gpt-6.1-sol', format: 'OpenAI', version: '2026-09-29', capacity: 20 }
   { name: 'gpt-6-sol', format: 'OpenAI', version: '2026-09-22', capacity: 20 }
   { name: 'gpt-6-luna', format: 'OpenAI', version: '2026-09-22', capacity: 20 }
   { name: 'gpt-6-astra', format: 'OpenAI', version: '2026-09-03', capacity: 20 }
-  { name: 'claude-opus-5-5', format: 'Anthropic', version: '2', capacity: 10 }
-  { name: 'claude-sonnet-5-5', format: 'Anthropic', version: '2', capacity: 20 }
-  { name: 'claude-haiku-5-5', format: 'Anthropic', version: '2', capacity: 20 }
+  // Decision models are Foundry-only: AI Gateway does not route the decision capability yet.
+  { name: 'Microsoft-Decision-1', deploymentName: 'decision-1', format: 'Microsoft', version: '1', capacity: 10, gateway: false }
 ]
 
 @description('Gateway aliases with failover. Each backend names a deployment from models.')
@@ -66,14 +66,6 @@ param aliases array = [
     backends: [
       { model: 'gpt-6.1-sol', priority: 0 }
       { model: 'gpt-6-sol', priority: 1 }
-    ]
-  }
-  {
-    name: 'claude-latest'
-    description: 'Latest Claude model with failover to Sonnet.'
-    backends: [
-      { model: 'claude-opus-5-5', priority: 0 }
-      { model: 'claude-sonnet-5-5', priority: 1 }
     ]
   }
 ]
@@ -116,11 +108,12 @@ var endpointsByFormat = {
 }
 // Callers reach models only through aliases, so every deployment also gets a direct alias
 // with the model's own name, alongside the failover aliases.
-var directAliases = [for m in models: {
-  name: m.name
+var gatewayModelList = filter(models, m => m.?gateway ?? true)
+var directAliases = [for m in gatewayModelList: {
+  name: m.?deploymentName ?? m.name
   description: 'Direct access to ${m.name}.'
   backends: [
-    { model: m.name, priority: 0 }
+    { model: m.?deploymentName ?? m.name, priority: 0 }
   ]
 }]
 var allAliases = concat(directAliases, aliases)
@@ -196,9 +189,9 @@ resource modelAccount 'Microsoft.CognitiveServices/accounts@2026-09-01' = {
 @batchSize(1)
 resource deployments 'Microsoft.CognitiveServices/accounts/deployments@2026-09-01' = [for m in models: {
   parent: modelAccount
-  name: m.name
+  name: m.?deploymentName ?? m.name
   sku: {
-    name: 'GlobalStandard'
+    name: m.?sku ?? 'GlobalStandard'
     capacity: m.capacity
   }
   properties: union({
@@ -311,17 +304,17 @@ resource foundryProvider 'Microsoft.ApiManagement/aigateways/workspaces/modelPro
 }
 
 #disable-next-line BCP081
-resource gatewayModels 'Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models@2025-09-01-preview' = [for (m, i) in models: {
+resource gatewayModels 'Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models@2025-09-01-preview' = [for (m, i) in models: if (m.?gateway ?? true) {
   parent: foundryProvider
-  name: m.name
+  name: m.?deploymentName ?? m.name
   properties: {
     displayName: m.name
     description: '${m.format} model ${m.name} (${m.version}) on ${modelAccountName}.'
-    apiFormat: apiFormatByFormat[m.format]
-    supportedEndpoints: endpointsByFormat[m.format]
+    apiFormat: apiFormatByFormat[?m.format] ?? 'OpenAIChatCompletions'
+    supportedEndpoints: endpointsByFormat[?m.format] ?? endpointsByFormat.OpenAI
     deployment: {
       resourceId: deployments[i].id
-      modelName: m.name
+      modelName: m.?deploymentName ?? m.name
       modelVersion: m.version
     }
   }
@@ -584,7 +577,9 @@ output aiGatewayName string = aiGateway.name
 output aiGatewayId string = aiGateway.id
 output aiGatewayEndpoint string = 'https://${aiGateway.properties.?frontend.?defaultHostname ?? ''}/'
 output modelAccountName string = modelAccount.name
-output modelDeployments array = [for m in models: m.name]
+output modelDeployments array = [for m in models: m.?deploymentName ?? m.name]
+output foundryOnlyDeployments array = [for m in filter(models, m => !(m.?gateway ?? true)): m.?deploymentName ?? m.name]
+output modelAccountEndpoint string = modelAccount.properties.endpoint
 output aliases array = [for a in allAliases: a.name]
 output gatewayAppInsightsName string = gatewayInsights.name
 output foundryProjectEndpoint string = deployAgentResources ? 'https://${agentAccountName}.services.ai.azure.com/api/projects/${projectName}' : ''

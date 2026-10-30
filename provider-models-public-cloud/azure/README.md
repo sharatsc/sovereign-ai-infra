@@ -1,11 +1,10 @@
 # Provider models in public cloud (Azure)
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fbrk-tech-labs%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsharatsc%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2Fazuredeploy.json)
 
 This template is the reference implementation of the **provider models in public
 cloud** variant from the Sovereign AI briefing. Applications call provider-hosted
-models (OpenAI and Anthropic Claude in Microsoft Foundry) through one AI Gateway
-endpoint. The gateway applies access control and records telemetry.
+models in Microsoft Foundry through one AI Gateway endpoint. The gateway applies access control and records telemetry.
 
 It follows Azure-Samples [AI-Gateway `aigw-foundry-models`](https://github.com/Azure-Samples/AI-Gateway/tree/main/labs/aigw-foundry-models)
 and [simple-foundry-hosted-agent-python-aigateway](https://github.com/Azure-Samples/simple-foundry-hosted-agent-python-aigateway),
@@ -21,15 +20,22 @@ deployed into one resource group.
 
 Default models:
 
-| Provider | Deployments |
-|---|---|
-| OpenAI | gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra |
-| Anthropic | claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5 |
+| Provider | Deployments | Reached through |
+|---|---|---|
+| OpenAI | gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra | AI Gateway |
+| Microsoft | Microsoft-Decision-1 (preview), deployed as `decision-1` | Foundry endpoint only |
+
+AI Gateway registers chat, Responses, completions, embeddings, image and Anthropic
+Messages models. It does not route decision models yet, so `decision-1` is called on
+the Foundry model account endpoint (output `modelAccountEndpoint`) with Microsoft
+Entra ID. Set `gateway: false` on any other model you want in Foundry only.
+
+Anthropic Claude models are not deployed by default. To add them, see
+[Add Claude models](#add-claude-models).
 
 Callers reach models only through gateway aliases. Every deployment gets an alias
-with its own name, such as `gpt-6-luna`. The aliases `gpt-latest` and
-`claude-latest` fail over from the newest model to the next one when the first is
-unavailable or out of quota.
+with its own name, such as `gpt-6-luna`. The alias `gpt-latest` fails over from
+gpt-6.1-sol to gpt-6-sol when the first is unavailable or out of quota.
 
 ## How access works
 
@@ -52,19 +58,13 @@ unavailable or out of quota.
   or Sweden Central.
 - Check Global Standard quota for each model in that region. Lower a model's
   `capacity`, or remove it from `models`, if quota is short.
-- Claude deployments require `organizationName`, `industry` and `countryCode`.
-  Foundry sends these to Anthropic. The subscription must also be able to buy the
-  Anthropic offer in Azure Marketplace. If a Claude deployment fails with
-  `MarketplaceSubscriptionCannotBeCompleted`, ask Microsoft to allowlist the
-  subscription, or remove the Claude entries from `models` and `aliases`.
 
 ## Deploy with the Azure CLI
 
 ```bash
 az group create -n rg-sovai-provider-cloud -l eastus2
 az deployment group create -g rg-sovai-provider-cloud -f main.bicep \
-  -p organizationName="<your organization>" \
-     principalId="$(az ad signed-in-user show --query id -o tsv)"
+  -p principalId="$(az ad signed-in-user show --query id -o tsv)"
 ```
 
 `azuredeploy.json` is compiled from `main.bicep`. After editing the Bicep, rebuild it:
@@ -82,8 +82,17 @@ curl "<aiGatewayEndpoint>default/models/openai/v1/chat/completions" \
   -d '{"model":"gpt-latest","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-Claude models use the Anthropic Messages protocol at
-`<aiGatewayEndpoint>default/models/anthropic/v1/messages`.
+## Add Claude models
+
+Add entries with `format: Anthropic` to `models`, for example
+`{ "name": "claude-sonnet-5-5", "format": "Anthropic", "version": "2", "capacity": 20 }`,
+and set `organizationName` (plus `industry` and `countryCode` if the defaults don't
+fit). Foundry sends these three values to Anthropic.
+
+The subscription must be able to buy the Anthropic offer in Azure Marketplace. If a
+deployment fails with `MarketplaceSubscriptionCannotBeCompleted`, ask Microsoft to
+allowlist the subscription. Claude models are called with the Anthropic Messages
+protocol at `<aiGatewayEndpoint>default/models/anthropic/v1/messages`.
 
 ## Preview status
 
