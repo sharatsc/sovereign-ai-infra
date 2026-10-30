@@ -29,6 +29,7 @@ The briefing's reference implementation section links to this template:
 | Resource | Purpose |
 |---|---|
 | AI Gateway (Premium, preview) | One endpoint for all models, Entra ID access control, aliases with failover |
+| Connector gateway with the same name | Lists the gateway in the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways) |
 | Azure AI Services account (Foundry) | Model deployments; local keys disabled, so only the gateway and Entra callers reach it |
 | Application Insights | Gateway traces |
 | Log Analytics workspace | Storage for the traces |
@@ -38,16 +39,19 @@ Default models:
 | Provider | Deployments | Reached through |
 |---|---|---|
 | OpenAI | gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra | AI Gateway |
-| Microsoft | Microsoft-Decision-1 (preview), deployed as `decision-1` | Foundry endpoint only |
+| Microsoft | Microsoft-Decision-1 (preview), deployed as `decision-1` | AI Gateway, `/systemone` passthrough |
 
 Every gateway model gets an alias with its own name, and `gpt-latest` fails over from
-gpt-6.1-sol to gpt-6-sol. AI Gateway does not route decision models yet, so
-`decision-1` is called on the Foundry endpoint with Microsoft Entra ID.
+gpt-6.1-sol to gpt-6-sol. Decision models use their own protocol, so the gateway
+passes `/providers/microsoft/v1/systemone` through to Foundry unchanged.
 
 ## Use the deployment
 
-Open the deployment's **Outputs** in the Azure portal. They list everything a consumer
-needs:
+Open the `nextStepsUrl` output, or the **Start here** dashboard in the resource group.
+It links to the AI Gateway portal, Foundry, traces and cost analysis, and shows
+ready-to-run calls for this deployment.
+
+The deployment's **Outputs** in the Azure portal list everything a consumer needs:
 
 | Output | Use |
 |---|---|
@@ -56,7 +60,8 @@ needs:
 | `tokenAudience` | Audience for the Entra ID access token |
 | `tryIt` | A ready-to-run curl call with an Entra token |
 | `getApiKeyCommand`, `tryItWithKey` | Read the built-in test key and call with it |
-| `foundryEndpoint`, `foundryOnlyDeployments` | Direct Foundry access for `decision-1` |
+| `decisionUrl`, `decisionModelNames` | Decision model endpoint on the gateway |
+| `nextStepsUrl`, `startHere` | Next-steps page and the Start here dashboard |
 | `aiGatewayPortalUrl`, `azurePortalUrl` | Where to manage the gateway |
 | `grantAccessCommand` | Give another user, group or app access |
 
@@ -67,6 +72,16 @@ TOKEN=$(az account get-access-token --resource https://azure-api.net/aigateway -
 curl -s "<chatCompletionsUrl>" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"model":"gpt-latest","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Call a decision model:
+
+```bash
+curl -s "<decisionUrl>" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"model":"decision-1","state":"The API returns 500 on every call.",
+       "questions":{"team":{"type":"choice","instructions":"Which team should handle this ticket?",
+       "criteria":{"billing":"Charges and refunds","engineering":"Bugs and outages","support":"How-to questions"}}}}'
 ```
 
 The account that ran the deployment can call immediately. Grant others the
@@ -82,8 +97,9 @@ under **Access > Keys**, and send it in the `Api-Key` header (not `Authorization
 ### Manage the gateway
 
 The AI Gateway portal at <https://ai.gateway.azure.com/ai-gateways> lists the gateways
-you can access. Select this one once; the portal remembers your choice. It has no
-link that opens a specific gateway directly. `azurePortalUrl` opens the gateway
+you can access. It finds gateways through their connector gateway, which the template
+creates. Select this one once; the portal remembers your choice. It has no link that
+opens a specific gateway directly. `azurePortalUrl` opens the gateway
 resource in the Azure portal.
 
 ## How access works

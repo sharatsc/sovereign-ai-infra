@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "17008740600058549464"
+      "templateHash": "8420879510800826650"
     }
   },
   "parameters": {
@@ -113,11 +113,13 @@
           "format": "Microsoft",
           "version": "1",
           "capacity": 10,
-          "gateway": false
+          "endpoints": [
+            "/providers/microsoft/v1/systemone"
+          ]
         }
       ],
       "metadata": {
-        "description": "Foundry model deployments. Fields: name, format (OpenAI, Anthropic or Microsoft), version, capacity; optional deploymentName (defaults to name), sku (defaults to GlobalStandard) and gateway (defaults to true; false deploys in Foundry only). Claude (Anthropic) deployments need a subscription that can buy the Anthropic Marketplace offer, plus organizationName."
+        "description": "Foundry model deployments. Fields: name, format (OpenAI, Anthropic or Microsoft), version, capacity; optional deploymentName (defaults to name), sku (defaults to GlobalStandard), endpoints (gateway paths; defaults by format) and gateway (defaults to true; false deploys in Foundry only). Claude (Anthropic) deployments need a subscription that can buy the Anthropic Marketplace offer, plus organizationName."
       }
     },
     "selectedModels": {
@@ -162,6 +164,35 @@
       "defaultValue": true,
       "metadata": {
         "description": "Capture request and response payloads in gateway traces. Required for token usage (gen_ai.usage.*) and model attributes in traces. Stores prompt and completion text in Application Insights; turn off if policy forbids it."
+      }
+    },
+    "monthlyBudget": {
+      "type": "int",
+      "defaultValue": 100,
+      "minValue": 1,
+      "metadata": {
+        "description": "Monthly budget for this resource group, in the billing currency. Alerts fire at 80% of actual spend and 100% of forecast spend."
+      }
+    },
+    "budgetAlertEmail": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional email address for budget alerts. Resource group owners are always notified."
+      }
+    },
+    "budgetStartDate": {
+      "type": "string",
+      "defaultValue": "[utcNow('yyyy-MM-01')]",
+      "metadata": {
+        "description": "First day of the budget period. Defaults to the first day of the current month."
+      }
+    },
+    "nextStepsBaseUrl": {
+      "type": "string",
+      "defaultValue": "https://brk-tech-sovereign-ai.azurewebsites.net/next-steps.html",
+      "metadata": {
+        "description": "Web page that shows next steps for this deployment. The deployment appends its values to the URL fragment."
       }
     }
   },
@@ -215,9 +246,16 @@
     "aiGatewayUserRole": "caad7a21-134e-43f4-a550-c5ffc17e051c",
     "deployerId": "[deployer().objectId]",
     "grantExtraPrincipal": "[and(not(empty(parameters('principalId'))), not(equals(parameters('principalId'), variables('deployerId'))))]",
+    "budgetContactEmails": "[if(empty(parameters('budgetAlertEmail')), createArray(), createArray(parameters('budgetAlertEmail')))]",
     "tokenAudience": "https://azure-api.net/aigateway",
     "aliasNames": "[map(variables('allAliases'), lambda('a', lambdaVariables('a').name))]",
-    "firstModel": "[if(or(contains(variables('aliasNames'), 'gpt-latest'), empty(variables('aliasNames'))), 'gpt-latest', variables('aliasNames')[0])]"
+    "firstModel": "[if(or(contains(variables('aliasNames'), 'gpt-latest'), empty(variables('aliasNames'))), 'gpt-latest', variables('aliasNames')[0])]",
+    "portalBase": "[format('https://portal.azure.com/#@{0}', tenant().tenantId)]",
+    "dashboardName": "[format('start-{0}', variables('base'))]",
+    "dashboardUrl": "[format('{0}/dashboard/arm{1}/providers/Microsoft.Portal/dashboards/{2}', variables('portalBase'), resourceGroup().id, variables('dashboardName'))]",
+    "foundryOnlyNames": "[map(filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true())))), lambda('m', coalesce(tryGet(lambdaVariables('m'), 'deploymentName'), lambdaVariables('m').name)))]",
+    "decisionGatewayNames": "[map(filter(variables('gatewayModelList'), lambda('m', contains(coalesce(tryGet(lambdaVariables('m'), 'endpoints'), createArray()), '/providers/microsoft/v1/systemone'))), lambda('m', coalesce(tryGet(lambdaVariables('m'), 'deploymentName'), lambdaVariables('m').name)))]",
+    "chatAliasNames": "[filter(variables('aliasNames'), lambda('a', not(contains(variables('decisionGatewayNames'), lambdaVariables('a')))))]"
   },
   "resources": [
     {
@@ -337,6 +375,17 @@
       "properties": {}
     },
     {
+      "type": "Microsoft.Web/connectorGateways",
+      "apiVersion": "2026-05-01-preview",
+      "name": "[variables('gatewayName')]",
+      "location": "[parameters('aiGatewayLocation')]",
+      "tags": "[variables('tags')]",
+      "properties": {},
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]",
@@ -407,8 +456,8 @@
       "properties": {
         "displayName": "[variables('effectiveModels')[copyIndex()].name]",
         "description": "[format('{0} model {1} ({2}) on {3}.', variables('effectiveModels')[copyIndex()].format, variables('effectiveModels')[copyIndex()].name, variables('effectiveModels')[copyIndex()].version, variables('modelAccountName'))]",
-        "apiFormat": "[coalesce(tryGet(variables('apiFormatByFormat'), variables('effectiveModels')[copyIndex()].format), 'OpenAIChatCompletions')]",
-        "supportedEndpoints": "[coalesce(tryGet(variables('endpointsByFormat'), variables('effectiveModels')[copyIndex()].format), variables('endpointsByFormat').OpenAI)]",
+        "apiFormat": "[tryGet(variables('apiFormatByFormat'), variables('effectiveModels')[copyIndex()].format)]",
+        "supportedEndpoints": "[coalesce(coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'endpoints'), tryGet(variables('endpointsByFormat'), variables('effectiveModels')[copyIndex()].format)), variables('endpointsByFormat').OpenAI)]",
         "deployment": {
           "resourceId": "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('modelAccountName'), coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name))]",
           "modelName": "[coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name)]",
@@ -475,9 +524,219 @@
       "dependsOn": [
         "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
       ]
+    },
+    {
+      "type": "Microsoft.Consumption/budgets",
+      "apiVersion": "2023-11-01",
+      "name": "[format('budget-{0}', variables('base'))]",
+      "properties": {
+        "category": "Cost",
+        "amount": "[parameters('monthlyBudget')]",
+        "timeGrain": "Monthly",
+        "timePeriod": {
+          "startDate": "[parameters('budgetStartDate')]"
+        },
+        "notifications": {
+          "actual80": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 80,
+            "thresholdType": "Actual",
+            "contactRoles": [
+              "Owner"
+            ],
+            "contactEmails": "[variables('budgetContactEmails')]"
+          },
+          "forecast100": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 100,
+            "thresholdType": "Forecasted",
+            "contactRoles": [
+              "Owner"
+            ],
+            "contactEmails": "[variables('budgetContactEmails')]"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Portal/dashboards",
+      "apiVersion": "2020-09-01-preview",
+      "name": "[variables('dashboardName')]",
+      "location": "[parameters('location')]",
+      "tags": "[union(variables('tags'), createObject('hidden-title', format('Start here: {0}', variables('gatewayName'))))]",
+      "properties": {
+        "lenses": [
+          {
+            "order": 0,
+            "parts": [
+              {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "colSpan": 8,
+                  "rowSpan": 9
+                },
+                "metadata": {
+                  "inputs": [],
+                  "type": "Extension/HubsExtension/PartType/MarkdownPart",
+                  "settings": {
+                    "content": {
+                      "settings": {
+                        "content": "[join(createArray('## Your AI Gateway is ready', '', format('Call models at **{0}** with your Microsoft Entra account. The account that deployed this stack already has access.', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), '', format('**Models:** {0}{1}', join(variables('aliasNames'), ', '), if(empty(variables('foundryOnlyNames')), '', format(' (Foundry only: {0})', join(variables('foundryOnlyNames'), ', ')))), '', '### Next steps', format('1. [Open the next-steps page]({0}) for copy-ready calls and settings.', format('{0}#kind=aigateway&gateway={1}&aigw={2}&aigwId={3}&models={4}&decision={5}&foundry={6}&insights={7}&dashboard={8}&budget={9}&rg={10}&tenant={11}', parameters('nextStepsBaseUrl'), uriComponent(take(format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), '')), sub(length(format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), 1))), uriComponent(variables('gatewayName')), uriComponent(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))), uriComponent(join(variables('chatAliasNames'), ',')), uriComponent(join(variables('decisionGatewayNames'), ',')), uriComponent(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))), uriComponent(resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))), uriComponent(variables('dashboardUrl')), parameters('monthlyBudget'), uriComponent(resourceGroup().id), tenant().tenantId)), '2. Try a call from a terminal:', '```', format('TOKEN=$(az account get-access-token --resource {0} --query accessToken -o tsv)', variables('tokenAudience')), format('curl -s {0} -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d ''{{\"model\":\"{1}\",\"messages\":[{{\"role\":\"user\",\"content\":\"Hello\"}}]}}''', format('{0}default/models/openai/v1/chat/completions', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), variables('firstModel')), '```', format('3. Give others access: assign the **AI Gateway User** role on [the gateway resource]({0}/resource{1}/users).', variables('portalBase'), resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))), format('4. See traces with token usage in [Application Insights]({0}/resource{1}/logs).', variables('portalBase'), resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))), format('5. Track spend against the **{0} per month** budget in [Cost analysis]({1}/resource{2}/costanalysis).', parameters('monthlyBudget'), variables('portalBase'), resourceGroup().id), '6. Manage models and policies in the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways) (preview). Gateways created from templates may not appear in its list yet.'), '\n')]",
+                        "title": "Start here",
+                        "subtitle": "[variables('gatewayName')]"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "position": {
+                  "x": 8,
+                  "y": 0,
+                  "colSpan": 6,
+                  "rowSpan": 4
+                },
+                "metadata": {
+                  "inputs": [
+                    {
+                      "name": "options",
+                      "isOptional": true,
+                      "value": {
+                        "chart": {
+                          "metrics": [
+                            {
+                              "resourceMetadata": {
+                                "id": "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))]"
+                              },
+                              "name": "requests/count",
+                              "aggregationType": 7,
+                              "namespace": "microsoft.insights/components",
+                              "metricVisualization": {
+                                "displayName": "Gateway requests"
+                              }
+                            }
+                          ],
+                          "title": "Gateway requests",
+                          "titleKind": 1,
+                          "visualization": {
+                            "chartType": 2
+                          },
+                          "timespan": {
+                            "relative": {
+                              "duration": 86400000
+                            },
+                            "showUTCTime": false,
+                            "grain": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "sharedTimeRange",
+                      "isOptional": true
+                    }
+                  ],
+                  "type": "Extension/HubsExtension/PartType/MonitorChartPart",
+                  "settings": {}
+                }
+              },
+              {
+                "position": {
+                  "x": 8,
+                  "y": 4,
+                  "colSpan": 6,
+                  "rowSpan": 4
+                },
+                "metadata": {
+                  "inputs": [
+                    {
+                      "name": "options",
+                      "isOptional": true,
+                      "value": {
+                        "chart": {
+                          "metrics": [
+                            {
+                              "resourceMetadata": {
+                                "id": "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))]"
+                              },
+                              "name": "requests/failed",
+                              "aggregationType": 7,
+                              "namespace": "microsoft.insights/components",
+                              "metricVisualization": {
+                                "displayName": "Failed requests"
+                              }
+                            }
+                          ],
+                          "title": "Failed requests",
+                          "titleKind": 1,
+                          "visualization": {
+                            "chartType": 2
+                          },
+                          "timespan": {
+                            "relative": {
+                              "duration": 86400000
+                            },
+                            "showUTCTime": false,
+                            "grain": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "sharedTimeRange",
+                      "isOptional": true
+                    }
+                  ],
+                  "type": "Extension/HubsExtension/PartType/MonitorChartPart",
+                  "settings": {}
+                }
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": {
+            "timeRange": {
+              "value": {
+                "relative": {
+                  "duration": 24,
+                  "timeUnit": 1
+                }
+              },
+              "type": "MsPortalFx.Composition.Configuration.ValueTypes.TimeRange"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+        "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+      ]
     }
   ],
   "outputs": {
+    "startHere": {
+      "type": "string",
+      "metadata": {
+        "description": "Start here: portal dashboard with next steps and live gateway charts."
+      },
+      "value": "[variables('dashboardUrl')]"
+    },
+    "nextStepsUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Next-steps web page with copy-ready calls for this deployment."
+      },
+      "value": "[format('{0}#kind=aigateway&gateway={1}&aigw={2}&aigwId={3}&models={4}&decision={5}&foundry={6}&insights={7}&dashboard={8}&budget={9}&rg={10}&tenant={11}', parameters('nextStepsBaseUrl'), uriComponent(take(format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), '')), sub(length(format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), 1))), uriComponent(variables('gatewayName')), uriComponent(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))), uriComponent(join(variables('chatAliasNames'), ',')), uriComponent(join(variables('decisionGatewayNames'), ',')), uriComponent(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))), uriComponent(resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))), uriComponent(variables('dashboardUrl')), parameters('monthlyBudget'), uriComponent(resourceGroup().id), tenant().tenantId)]"
+    },
+    "monthlyBudget": {
+      "type": "int",
+      "value": "[parameters('monthlyBudget')]"
+    },
     "aiGatewayName": {
       "type": "string",
       "value": "[variables('gatewayName')]"
@@ -512,6 +771,14 @@
         "count": "[length(filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true())))))]",
         "input": "[coalesce(tryGet(filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()], 'deploymentName'), filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()].name)]"
       }
+    },
+    "decisionUrl": {
+      "type": "string",
+      "value": "[format('{0}default/models/providers/microsoft/v1/systemone', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), '')))]"
+    },
+    "decisionModelNames": {
+      "type": "array",
+      "value": "[variables('decisionGatewayNames')]"
     },
     "foundryEndpoint": {
       "type": "string",
