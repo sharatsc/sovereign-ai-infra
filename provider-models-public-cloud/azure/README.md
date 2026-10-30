@@ -12,6 +12,18 @@ and [simple-foundry-hosted-agent-python-aigateway](https://github.com/Azure-Samp
 scoped to model access in one resource group. The button opens a portal form with a
 model checklist, one capacity setting and access options.
 
+## Where it fits
+
+The Sovereign AI briefing compares four deployment variants. This template implements
+the first, **provider models in public cloud**: provider-operated models behind a
+gateway you control.
+
+![Provider models in public cloud variant in the Sovereign AI briefing](images/briefing-provider-variant.png)
+
+The briefing's reference implementation section links to this template:
+
+![Reference implementation section with the Deploy to Azure button](images/briefing-reference-implementation.png)
+
 ## What it deploys
 
 | Resource | Purpose |
