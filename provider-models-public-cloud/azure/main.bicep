@@ -58,7 +58,14 @@ param models array = [
   { name: 'Microsoft-Decision-1', deploymentName: 'decision-1', format: 'Microsoft', version: '1', capacity: 10, gateway: false }
 ]
 
-@description('Gateway aliases with failover. Each backend names a deployment from models.')
+@description('Names (deploymentName or name) of the models entries to deploy. Empty deploys every entry in models. The portal form sets this from its model checklist.')
+param selectedModels array = []
+
+@minValue(0)
+@description('If greater than 0, use this Global Standard capacity for every selected model instead of each entry\'s capacity.')
+param capacityOverride int = 0
+
+@description('Gateway aliases with failover. Each backend names a deployment from models. Backends whose model is not deployed are dropped, and aliases left with no backend are skipped.')
 param aliases array = [
   {
     name: 'gpt-latest'
@@ -81,9 +88,11 @@ param deployAgentResources bool = true
 @description('Container registry SKU for hosted-agent images.')
 param containerRegistrySku string = 'Basic'
 
-@description('Capture prompt and completion payloads in gateway telemetry. Keep off unless policy permits it.')
-param payloadCapture bool = false
+@description('Capture request and response payloads in gateway traces. Required for token usage (gen_ai.usage.*) and model attributes in traces. Stores prompt and completion text in Application Insights; turn off if policy forbids it.')
+param payloadCapture bool = true
 
+var chosenModels = empty(selectedModels) ? models : filter(models, m => contains(selectedModels, m.?deploymentName ?? m.name))
+var effectiveModels = map(chosenModels, m => capacityOverride > 0 ? union(m, { capacity: capacityOverride }) : m)
 var token = take(toLower(uniqueString(resourceGroup().id, namePrefix)), 6)
 var base = '${toLower(namePrefix)}-${token}'
 var gatewayName = 'aigw-${base}'
@@ -108,7 +117,7 @@ var endpointsByFormat = {
 }
 // Callers reach models only through aliases, so every deployment also gets a direct alias
 // with the model's own name, alongside the failover aliases.
-var gatewayModelList = filter(models, m => m.?gateway ?? true)
+var gatewayModelList = filter(effectiveModels, m => m.?gateway ?? true)
 var directAliases = [for m in gatewayModelList: {
   name: m.?deploymentName ?? m.name
   description: 'Direct access to ${m.name}.'
@@ -116,7 +125,13 @@ var directAliases = [for m in gatewayModelList: {
     { model: m.?deploymentName ?? m.name, priority: 0 }
   ]
 }]
-var allAliases = concat(directAliases, aliases)
+var gatewayModelNames = map(gatewayModelList, m => m.?deploymentName ?? m.name)
+var availableAliases = filter(map(aliases, a => {
+  name: a.name
+  description: a.description
+  backends: filter(a.backends, b => contains(gatewayModelNames, b.model))
+}), a => length(a.backends) > 0)
+var allAliases = concat(directAliases, availableAliases)
 var apiFormatByFormat = {
   OpenAI: 'OpenAIChatCompletions'
   Anthropic: 'AnthropicMessages'
@@ -187,7 +202,7 @@ resource modelAccount 'Microsoft.CognitiveServices/accounts@2026-09-01' = {
 }
 
 @batchSize(1)
-resource deployments 'Microsoft.CognitiveServices/accounts/deployments@2026-09-01' = [for m in models: {
+resource deployments 'Microsoft.CognitiveServices/accounts/deployments@2026-09-01' = [for m in effectiveModels: {
   parent: modelAccount
   name: m.?deploymentName ?? m.name
   sku: {
@@ -304,7 +319,7 @@ resource foundryProvider 'Microsoft.ApiManagement/aigateways/workspaces/modelPro
 }
 
 #disable-next-line BCP081
-resource gatewayModels 'Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models@2025-09-01-preview' = [for (m, i) in models: if (m.?gateway ?? true) {
+resource gatewayModels 'Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models@2025-09-01-preview' = [for (m, i) in effectiveModels: if (m.?gateway ?? true) {
   parent: foundryProvider
   name: m.?deploymentName ?? m.name
   properties: {
@@ -577,8 +592,8 @@ output aiGatewayName string = aiGateway.name
 output aiGatewayId string = aiGateway.id
 output aiGatewayEndpoint string = 'https://${aiGateway.properties.?frontend.?defaultHostname ?? ''}/'
 output modelAccountName string = modelAccount.name
-output modelDeployments array = [for m in models: m.?deploymentName ?? m.name]
-output foundryOnlyDeployments array = [for m in filter(models, m => !(m.?gateway ?? true)): m.?deploymentName ?? m.name]
+output modelDeployments array = [for m in effectiveModels: m.?deploymentName ?? m.name]
+output foundryOnlyDeployments array = [for m in filter(effectiveModels, m => !(m.?gateway ?? true)): m.?deploymentName ?? m.name]
 output modelAccountEndpoint string = modelAccount.properties.endpoint
 output aliases array = [for a in allAliases: a.name]
 output gatewayAppInsightsName string = gatewayInsights.name

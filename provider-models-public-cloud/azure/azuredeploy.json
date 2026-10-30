@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "6069890507513920958"
+      "templateHash": "14728777812138070329"
     }
   },
   "parameters": {
@@ -127,6 +127,21 @@
         "description": "Foundry model deployments. Fields: name, format (OpenAI, Anthropic or Microsoft), version, capacity; optional deploymentName (defaults to name), sku (defaults to GlobalStandard) and gateway (defaults to true; false deploys in Foundry only). Claude (Anthropic) deployments need a subscription that can buy the Anthropic Marketplace offer, plus organizationName."
       }
     },
+    "selectedModels": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Names (deploymentName or name) of the models entries to deploy. Empty deploys every entry in models. The portal form sets this from its model checklist."
+      }
+    },
+    "capacityOverride": {
+      "type": "int",
+      "defaultValue": 0,
+      "minValue": 0,
+      "metadata": {
+        "description": "If greater than 0, use this Global Standard capacity for every selected model instead of each entry's capacity."
+      }
+    },
     "aliases": {
       "type": "array",
       "defaultValue": [
@@ -146,7 +161,7 @@
         }
       ],
       "metadata": {
-        "description": "Gateway aliases with failover. Each backend names a deployment from models."
+        "description": "Gateway aliases with failover. Each backend names a deployment from models. Backends whose model is not deployed are dropped, and aliases left with no backend are skipped."
       }
     },
     "deployAgentResources": {
@@ -170,9 +185,9 @@
     },
     "payloadCapture": {
       "type": "bool",
-      "defaultValue": false,
+      "defaultValue": true,
       "metadata": {
-        "description": "Capture prompt and completion payloads in gateway telemetry. Keep off unless policy permits it."
+        "description": "Capture request and response payloads in gateway traces. Required for token usage (gen_ai.usage.*) and model attributes in traces. Stores prompt and completion text in Application Insights; turn off if policy forbids it."
       }
     }
   },
@@ -193,6 +208,8 @@
         }
       }
     ],
+    "chosenModels": "[if(empty(parameters('selectedModels')), parameters('models'), filter(parameters('models'), lambda('m', contains(parameters('selectedModels'), coalesce(tryGet(lambdaVariables('m'), 'deploymentName'), lambdaVariables('m').name)))))]",
+    "effectiveModels": "[map(variables('chosenModels'), lambda('m', if(greater(parameters('capacityOverride'), 0), union(lambdaVariables('m'), createObject('capacity', parameters('capacityOverride'))), lambdaVariables('m'))))]",
     "token": "[take(toLower(uniqueString(resourceGroup().id, parameters('namePrefix'))), 6)]",
     "base": "[format('{0}-{1}', toLower(parameters('namePrefix')), variables('token'))]",
     "gatewayName": "[format('aigw-{0}', variables('base'))]",
@@ -215,8 +232,10 @@
         "/anthropic/v1/messages"
       ]
     },
-    "gatewayModelList": "[filter(parameters('models'), lambda('m', coalesce(tryGet(lambdaVariables('m'), 'gateway'), true())))]",
-    "allAliases": "[concat(variables('directAliases'), parameters('aliases'))]",
+    "gatewayModelList": "[filter(variables('effectiveModels'), lambda('m', coalesce(tryGet(lambdaVariables('m'), 'gateway'), true())))]",
+    "gatewayModelNames": "[map(variables('gatewayModelList'), lambda('m', coalesce(tryGet(lambdaVariables('m'), 'deploymentName'), lambdaVariables('m').name)))]",
+    "availableAliases": "[filter(map(parameters('aliases'), lambda('a', createObject('name', lambdaVariables('a').name, 'description', lambdaVariables('a').description, 'backends', filter(lambdaVariables('a').backends, lambda('b', contains(variables('gatewayModelNames'), lambdaVariables('b').model)))))), lambda('a', greater(length(lambdaVariables('a').backends), 0)))]",
+    "allAliases": "[concat(variables('directAliases'), variables('availableAliases'))]",
     "apiFormatByFormat": {
       "OpenAI": "OpenAIChatCompletions",
       "Anthropic": "AnthropicMessages"
@@ -288,18 +307,18 @@
     {
       "copy": {
         "name": "deployments",
-        "count": "[length(parameters('models'))]",
+        "count": "[length(variables('effectiveModels'))]",
         "mode": "serial",
         "batchSize": 1
       },
       "type": "Microsoft.CognitiveServices/accounts/deployments",
       "apiVersion": "2026-09-01",
-      "name": "[format('{0}/{1}', variables('modelAccountName'), coalesce(tryGet(parameters('models')[copyIndex()], 'deploymentName'), parameters('models')[copyIndex()].name))]",
+      "name": "[format('{0}/{1}', variables('modelAccountName'), coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name))]",
       "sku": {
-        "name": "[coalesce(tryGet(parameters('models')[copyIndex()], 'sku'), 'GlobalStandard')]",
-        "capacity": "[parameters('models')[copyIndex()].capacity]"
+        "name": "[coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'sku'), 'GlobalStandard')]",
+        "capacity": "[variables('effectiveModels')[copyIndex()].capacity]"
       },
-      "properties": "[union(createObject('model', createObject('format', parameters('models')[copyIndex()].format, 'name', parameters('models')[copyIndex()].name, 'version', parameters('models')[copyIndex()].version)), if(equals(parameters('models')[copyIndex()].format, 'Anthropic'), createObject('modelProviderData', createObject('organizationName', parameters('organizationName'), 'industry', parameters('industry'), 'countryCode', parameters('countryCode'))), createObject()))]",
+      "properties": "[union(createObject('model', createObject('format', variables('effectiveModels')[copyIndex()].format, 'name', variables('effectiveModels')[copyIndex()].name, 'version', variables('effectiveModels')[copyIndex()].version)), if(equals(variables('effectiveModels')[copyIndex()].format, 'Anthropic'), createObject('modelProviderData', createObject('organizationName', parameters('organizationName'), 'industry', parameters('industry'), 'countryCode', parameters('countryCode'))), createObject()))]",
       "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
       ]
@@ -406,25 +425,25 @@
     {
       "copy": {
         "name": "gatewayModels",
-        "count": "[length(parameters('models'))]"
+        "count": "[length(variables('effectiveModels'))]"
       },
-      "condition": "[coalesce(tryGet(parameters('models')[copyIndex()], 'gateway'), true())]",
+      "condition": "[coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'gateway'), true())]",
       "type": "Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models",
       "apiVersion": "2025-09-01-preview",
-      "name": "[format('{0}/{1}/{2}/{3}', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'), coalesce(tryGet(parameters('models')[copyIndex()], 'deploymentName'), parameters('models')[copyIndex()].name))]",
+      "name": "[format('{0}/{1}/{2}/{3}', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'), coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name))]",
       "properties": {
-        "displayName": "[parameters('models')[copyIndex()].name]",
-        "description": "[format('{0} model {1} ({2}) on {3}.', parameters('models')[copyIndex()].format, parameters('models')[copyIndex()].name, parameters('models')[copyIndex()].version, variables('modelAccountName'))]",
-        "apiFormat": "[coalesce(tryGet(variables('apiFormatByFormat'), parameters('models')[copyIndex()].format), 'OpenAIChatCompletions')]",
-        "supportedEndpoints": "[coalesce(tryGet(variables('endpointsByFormat'), parameters('models')[copyIndex()].format), variables('endpointsByFormat').OpenAI)]",
+        "displayName": "[variables('effectiveModels')[copyIndex()].name]",
+        "description": "[format('{0} model {1} ({2}) on {3}.', variables('effectiveModels')[copyIndex()].format, variables('effectiveModels')[copyIndex()].name, variables('effectiveModels')[copyIndex()].version, variables('modelAccountName'))]",
+        "apiFormat": "[coalesce(tryGet(variables('apiFormatByFormat'), variables('effectiveModels')[copyIndex()].format), 'OpenAIChatCompletions')]",
+        "supportedEndpoints": "[coalesce(tryGet(variables('endpointsByFormat'), variables('effectiveModels')[copyIndex()].format), variables('endpointsByFormat').OpenAI)]",
         "deployment": {
-          "resourceId": "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('modelAccountName'), coalesce(tryGet(parameters('models')[copyIndex()], 'deploymentName'), parameters('models')[copyIndex()].name))]",
-          "modelName": "[coalesce(tryGet(parameters('models')[copyIndex()], 'deploymentName'), parameters('models')[copyIndex()].name)]",
-          "modelVersion": "[parameters('models')[copyIndex()].version]"
+          "resourceId": "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('modelAccountName'), coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name))]",
+          "modelName": "[coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name)]",
+          "modelVersion": "[variables('effectiveModels')[copyIndex()].version]"
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('modelAccountName'), coalesce(tryGet(parameters('models')[copyIndex()], 'deploymentName'), parameters('models')[copyIndex()].name))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('modelAccountName'), coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name))]",
         "[resourceId('Microsoft.ApiManagement/aigateways/workspaces/modelProviders', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'))]"
       ]
     },
@@ -777,15 +796,15 @@
     "modelDeployments": {
       "type": "array",
       "copy": {
-        "count": "[length(parameters('models'))]",
-        "input": "[coalesce(tryGet(parameters('models')[copyIndex()], 'deploymentName'), parameters('models')[copyIndex()].name)]"
+        "count": "[length(variables('effectiveModels'))]",
+        "input": "[coalesce(tryGet(variables('effectiveModels')[copyIndex()], 'deploymentName'), variables('effectiveModels')[copyIndex()].name)]"
       }
     },
     "foundryOnlyDeployments": {
       "type": "array",
       "copy": {
-        "count": "[length(filter(parameters('models'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true())))))]",
-        "input": "[coalesce(tryGet(filter(parameters('models'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()], 'deploymentName'), filter(parameters('models'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()].name)]"
+        "count": "[length(filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true())))))]",
+        "input": "[coalesce(tryGet(filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()], 'deploymentName'), filter(variables('effectiveModels'), lambda('m', not(coalesce(tryGet(lambdaVariables('m'), 'gateway'), true()))))[copyIndex()].name)]"
       }
     },
     "modelAccountEndpoint": {

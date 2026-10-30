@@ -1,6 +1,6 @@
 # Provider models in public cloud (Azure)
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsharatsc%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsharatsc%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fsharatsc%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2FcreateUiDefinition.json)
 
 This template is the reference implementation of the **provider models in public
 cloud** variant from the Sovereign AI briefing. Applications call provider-hosted
@@ -9,6 +9,9 @@ models in Microsoft Foundry through one AI Gateway endpoint. The gateway applies
 It follows Azure-Samples [AI-Gateway `aigw-foundry-models`](https://github.com/Azure-Samples/AI-Gateway/tree/main/labs/aigw-foundry-models)
 and [simple-foundry-hosted-agent-python-aigateway](https://github.com/Azure-Samples/simple-foundry-hosted-agent-python-aigateway),
 deployed into one resource group.
+
+The button opens a portal form (`createUiDefinition.json`) with a model checklist,
+one capacity setting and access options, instead of raw JSON parameters.
 
 ## What it deploys
 
@@ -47,8 +50,15 @@ gpt-6.1-sol to gpt-6-sol when the first is unavailable or out of quota.
 - **Outbound.** The gateway reaches Foundry with its system-assigned managed
   identity, which holds the Foundry User role on the model account. No provider
   keys are stored.
-- **Telemetry.** The gateway exports OpenTelemetry-based request, token and latency
-  telemetry to its Application Insights resource. Payload capture is off by default.
+- **Telemetry.** The gateway sends a trace for every call to its Application
+  Insights resource: the inbound request, the outbound Foundry call and the managed
+  identity token request, linked by operation ID. Payload capture is on by default
+  because the gateway records token usage (`gen_ai.usage.input_tokens`,
+  `gen_ai.usage.output_tokens`) and the serving model (`gen_ai.response.model`) only
+  when it captures payloads. Captured traces include request and response bodies,
+  so prompt and completion text is stored in Application Insights. Set
+  `payloadCapture` to false if your data policy forbids that; traces then keep
+  timing, status and sizes but report zero tokens.
 
 ## Before you deploy
 
@@ -56,8 +66,9 @@ gpt-6.1-sol to gpt-6-sol when the first is unavailable or out of quota.
   resource group. The template creates role assignments.
 - Pick a region with AI Gateway preview support and the models you want: East US 2
   or Sweden Central.
-- Check Global Standard quota for each model in that region. Lower a model's
-  `capacity`, or remove it from `models`, if quota is short.
+- Check Global Standard quota for each model in that region. Lower the capacity,
+  or deselect models, if quota is short. From the CLI, use `selectedModels` and
+  `capacityOverride`, or edit `models`.
 
 ## Deploy with the Azure CLI
 
@@ -71,6 +82,18 @@ az deployment group create -g rg-sovai-provider-cloud -f main.bicep \
 
 ```bash
 az bicep build -f main.bicep --outfile azuredeploy.json
+```
+
+## Query traces
+
+```kusto
+requests
+| where name has "/default/models/"
+| project timestamp, name, resultCode, duration,
+          model = tostring(customDimensions["gen_ai.response.model"]),
+          inputTokens = toint(customMeasurements["gen_ai.usage.input_tokens"]),
+          outputTokens = toint(customMeasurements["gen_ai.usage.output_tokens"])
+| order by timestamp desc
 ```
 
 ## Call a model

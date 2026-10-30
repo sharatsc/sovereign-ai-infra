@@ -1,0 +1,247 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "config": {
+      "basics": {
+        "description": "Deploy the **provider models in public cloud** reference: an AI Gateway in front of Microsoft Foundry models, with Application Insights telemetry and a Foundry project for hosted agents. Callers sign in with Microsoft Entra ID.",
+        "location": {
+          "label": "Resource group region",
+          "toolTip": "Region of the resource group itself. Resources use the Deployment region below.",
+          "resourceTypes": [
+            "Microsoft.CognitiveServices/accounts"
+          ]
+        }
+      }
+    },
+    "basics": [
+      {
+        "name": "region",
+        "type": "Microsoft.Common.DropDown",
+        "label": "Deployment region",
+        "toolTip": "AI Gateway is in preview in these regions. Foundry, monitoring and agent resources use the same region.",
+        "defaultValue": "East US 2",
+        "constraints": {
+          "allowedValues": [
+            {
+              "label": "East US 2",
+              "value": "eastus2"
+            },
+            {
+              "label": "Sweden Central",
+              "value": "swedencentral"
+            }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "namePrefix",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Name prefix",
+        "defaultValue": "sovai",
+        "toolTip": "Short prefix for resource names. A unique suffix is added.",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-z][a-z0-9]{2,7}$",
+          "validationMessage": "Use 3 to 8 lowercase letters or digits, starting with a letter."
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "models",
+        "label": "Models",
+        "elements": [
+          {
+            "name": "modelsInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "style": "Info",
+              "text": "Each selected model gets a Global Standard deployment in Foundry. Gateway models are callable by name, and gpt-latest fails over from gpt-6.1-sol to gpt-6-sol. Check your Global Standard quota for each model in the selected region."
+            }
+          },
+          {
+            "name": "selectedModels",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Models to deploy",
+            "toolTip": "Select one or more models.",
+            "multiselect": true,
+            "selectAll": true,
+            "multiLine": true,
+            "defaultValue": [
+              {
+                "value": "gpt-6.1-sol"
+              },
+              {
+                "value": "gpt-6-sol"
+              },
+              {
+                "value": "gpt-6-luna"
+              },
+              {
+                "value": "gpt-6-astra"
+              },
+              {
+                "value": "decision-1"
+              }
+            ],
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "gpt-6.1-sol",
+                  "description": "OpenAI. Newest flagship; first choice for gpt-latest. Through AI Gateway.",
+                  "value": "gpt-6.1-sol"
+                },
+                {
+                  "label": "gpt-6-sol",
+                  "description": "OpenAI. Previous flagship; failover for gpt-latest. Through AI Gateway.",
+                  "value": "gpt-6-sol"
+                },
+                {
+                  "label": "gpt-6-luna",
+                  "description": "OpenAI. GPT-6 family model. Through AI Gateway.",
+                  "value": "gpt-6-luna"
+                },
+                {
+                  "label": "gpt-6-astra",
+                  "description": "OpenAI. GPT-6 family model. Through AI Gateway.",
+                  "value": "gpt-6-astra"
+                },
+                {
+                  "label": "Microsoft-Decision-1 (preview)",
+                  "description": "Microsoft decision model, deployed as decision-1. Foundry endpoint only; AI Gateway does not route decision models yet.",
+                  "value": "decision-1"
+                }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "capacity",
+            "type": "Microsoft.Common.Slider",
+            "label": "Capacity per model",
+            "subLabel": "Global Standard units",
+            "toolTip": "Global Standard capacity for each selected model. Lower it if your quota is short.",
+            "min": 1,
+            "max": 200,
+            "step": 1,
+            "defaultValue": 20,
+            "showStepMarkers": false,
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "access",
+        "label": "Access",
+        "elements": [
+          {
+            "name": "accessInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "style": "Info",
+              "text": "Callers authenticate to the gateway with Microsoft Entra ID and need an AI Gateway role. To find your own object ID, run: az ad signed-in-user show --query id -o tsv"
+            }
+          },
+          {
+            "name": "principalId",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Object ID to grant access (optional)",
+            "toolTip": "Entra object ID of a user, group or service principal. It gets the AI Gateway User role and Foundry developer access.",
+            "constraints": {
+              "required": false,
+              "regex": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+              "validationMessage": "Enter an object ID (GUID) or leave it empty."
+            }
+          },
+          {
+            "name": "principalType",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "Object type",
+            "defaultValue": "User",
+            "visible": "[not(empty(steps('access').principalId))]",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "User",
+                  "value": "User"
+                },
+                {
+                  "label": "Group",
+                  "value": "Group"
+                },
+                {
+                  "label": "Service principal",
+                  "value": "ServicePrincipal"
+                }
+              ]
+            }
+          },
+          {
+            "name": "createApiKey",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Also create a gateway API key (not recommended for production)"
+          }
+        ]
+      },
+      {
+        "name": "agents",
+        "label": "Agents and telemetry",
+        "elements": [
+          {
+            "name": "deployAgentResources",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Deploy a Foundry project, storage and container registry for hosted agents",
+            "defaultValue": true
+          },
+          {
+            "name": "containerRegistrySku",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Container registry SKU",
+            "defaultValue": "Basic",
+            "visible": "[steps('agents').deployAgentResources]",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Basic",
+                  "value": "Basic"
+                },
+                {
+                  "label": "Standard",
+                  "value": "Standard"
+                },
+                {
+                  "label": "Premium",
+                  "value": "Premium"
+                }
+              ]
+            }
+          },
+          {
+            "name": "payloadCapture",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Capture request and response payloads in traces (needed for token usage and model in traces; stores prompt and completion text)",
+            "defaultValue": true
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "location": "[basics('region')]",
+      "aiGatewayLocation": "[basics('region')]",
+      "namePrefix": "[basics('namePrefix')]",
+      "selectedModels": "[steps('models').selectedModels]",
+      "capacityOverride": "[steps('models').capacity]",
+      "principalId": "[steps('access').principalId]",
+      "principalType": "[if(empty(steps('access').principalId), 'User', steps('access').principalType)]",
+      "createApiKey": "[steps('access').createApiKey]",
+      "deployAgentResources": "[steps('agents').deployAgentResources]",
+      "containerRegistrySku": "[if(steps('agents').deployAgentResources, steps('agents').containerRegistrySku, 'Basic')]",
+      "payloadCapture": "[steps('agents').payloadCapture]"
+    }
+  }
+}
