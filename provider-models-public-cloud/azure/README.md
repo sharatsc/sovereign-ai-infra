@@ -1,10 +1,10 @@
-# Provider models in public cloud (Azure)
+# Frontier models on public cloud (Azure)
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsharatsc%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fsharatsc%2Fsovereign-ai-infra%2Fmain%2Fprovider-models-public-cloud%2Fazure%2FcreateUiDefinition.json)
 
-This template is the reference implementation of the **provider models in public
+This template is the reference implementation of the **frontier models on public
 cloud** variant from the Sovereign AI briefing. Applications call provider-hosted
-models in Microsoft Foundry through one AI Gateway endpoint. The gateway controls
+frontier models in Microsoft Foundry through one AI Gateway endpoint. The gateway controls
 access and traces every call.
 
 It follows Azure-Samples [AI-Gateway `aigw-foundry-models`](https://github.com/Azure-Samples/AI-Gateway/tree/main/labs/aigw-foundry-models)
@@ -14,11 +14,11 @@ model checklist, one capacity setting and access options.
 
 ## Where it fits
 
-The Sovereign AI briefing compares four deployment variants. This template implements
-the first, **provider models in public cloud**: provider-operated models behind a
+The Sovereign AI briefing compares three deployment variants. This template implements
+the first, **frontier models on public cloud**: provider-operated models behind a
 gateway you control.
 
-![Provider models in public cloud variant in the Sovereign AI briefing](images/briefing-provider-variant.png)
+![Frontier models on public cloud variant in the Sovereign AI briefing](images/briefing-provider-variant.png)
 
 The briefing's reference implementation section links to this template:
 

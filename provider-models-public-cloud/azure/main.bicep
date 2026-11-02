@@ -1,4 +1,4 @@
-// Sovereign AI reference: provider models in public cloud (Azure).
+// Sovereign AI reference: frontier models on public cloud (Azure).
 // Deploys an AI Gateway in front of Microsoft Foundry model deployments (OpenAI by default;
 // Anthropic Claude is supported through the models parameter) with Application Insights
 // traces. Based on Azure-Samples/AI-Gateway (labs/aigw-foundry-models) and

@@ -5,7 +5,7 @@
   "parameters": {
     "config": {
       "basics": {
-        "description": "Deploy the **provider models in public cloud** reference: an AI Gateway in front of Microsoft Foundry models, with Application Insights traces. You get access automatically; callers sign in with Microsoft Entra ID.",
+        "description": "Deploy the **frontier models on public cloud** reference: an AI Gateway in front of Microsoft Foundry models, with Application Insights traces. You get access automatically; callers sign in with Microsoft Entra ID.",
         "location": {
           "label": "Resource group region",
           "toolTip": "Region of the resource group itself. Resources use the Deployment region below.",
