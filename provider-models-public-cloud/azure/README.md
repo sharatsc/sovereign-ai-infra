@@ -29,10 +29,12 @@ The briefing's reference implementation section links to this template:
 | Resource | Purpose |
 |---|---|
 | AI Gateway (Premium, preview) | One endpoint for all models, Entra ID access control, aliases with failover |
-| Connector gateway with the same name | Lists the gateway in the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways) |
+| Connector gateway with the same name | Pairs the gateway with the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways) |
 | Azure AI Services account (Foundry) | Model deployments; local keys disabled, so only the gateway and Entra callers reach it |
 | Application Insights | Gateway traces |
 | Log Analytics workspace | Storage for the traces |
+| Workbook "Start here" | Landing page in the Azure portal: live models, token usage, failures and links |
+| Cost Management budget | Monthly budget with alerts at 80% actual and 100% forecast spend |
 
 Default models:
 
@@ -47,9 +49,19 @@ passes `/providers/microsoft/v1/systemone` through to Foundry unchanged.
 
 ## Use the deployment
 
-Open the `nextStepsUrl` output, or the **Start here** dashboard in the resource group.
-It links to the AI Gateway portal, Foundry, traces and cost analysis, and shows
-ready-to-run calls for this deployment.
+Azure has no redirect after a deployment, so the template gives you two landing pages:
+
+- **Start here workbook** (the `startHere` output). It is in the resource group's resource
+  list and under its **Workbooks** menu. It lists the models you can call, read live from
+  the gateway, and charts tokens, calls and failures from Application Insights. Its buttons
+  open the next-steps page, the gateway's access control, traces, cost analysis, Foundry and
+  the AI Gateway portal.
+- **Next-steps page** (the `nextStepsUrl` output). It has ready-to-run calls for every model
+  and links for this deployment.
+
+If you start from the Deploy to Azure button on the Sovereign AI briefing site, the site
+follows the deployment and opens the next-steps page when it finishes. Its **Your
+deployments** page lists the reference deployments you can see.
 
 The deployment's **Outputs** in the Azure portal list everything a consumer needs:
 
@@ -61,7 +73,7 @@ The deployment's **Outputs** in the Azure portal list everything a consumer need
 | `tryIt` | A ready-to-run curl call with an Entra token |
 | `getApiKeyCommand`, `tryItWithKey` | Read the built-in test key and call with it |
 | `decisionUrl`, `decisionModelNames` | Decision model endpoint on the gateway |
-| `nextStepsUrl`, `startHere` | Next-steps page and the Start here dashboard |
+| `nextStepsUrl`, `startHere` | Next-steps page and the Start here workbook |
 | `aiGatewayPortalUrl`, `azurePortalUrl` | Where to manage the gateway |
 | `grantAccessCommand` | Give another user, group or app access |
 

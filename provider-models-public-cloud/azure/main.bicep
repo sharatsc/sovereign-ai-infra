@@ -83,8 +83,8 @@ param monthlyBudget int = 100
 @description('Optional email address for budget alerts. Resource group owners are always notified.')
 param budgetAlertEmail string = ''
 
-@description('First day of the budget period. Defaults to the first day of the current month.')
-param budgetStartDate string = utcNow('yyyy-MM-01')
+@description('First day of the budget period (the first of a month). Azure cannot change a budget start date, so keep this fixed across redeployments.')
+param budgetStartDate string = '2026-01-01'
 
 @description('Web page that shows next steps for this deployment. The deployment appends its values to the URL fragment.')
 param nextStepsBaseUrl string = 'https://brk-tech-sovereign-ai.azurewebsites.net/next-steps.html'
@@ -417,8 +417,8 @@ resource budget 'Microsoft.Consumption/budgets@2023-11-01' = {
 }
 
 // ---------------------------------------------------------------------------
-// Start here: a portal dashboard with next steps and live gateway charts, and a link to the
-// next-steps web page. Azure has no post-deployment redirect, so these are the landing pages.
+// Start here: a workbook with live models, usage charts and actions, and a link to the next-steps
+// web page. Azure has no post-deployment redirect, so these are the landing pages.
 // ---------------------------------------------------------------------------
 var gatewayEndpoint = 'https://${aiGateway.properties.?frontend.?defaultHostname ?? ''}/'
 var chatUrl = '${gatewayEndpoint}default/models/openai/v1/chat/completions'
@@ -426,141 +426,166 @@ var tokenAudience = 'https://azure-api.net/aigateway'
 var aliasNames = map(allAliases, a => a.name)
 var firstModel = contains(aliasNames, 'gpt-latest') || empty(aliasNames) ? 'gpt-latest' : aliasNames[0]
 var portalBase = 'https://portal.azure.com/#@${tenant().tenantId}'
-var dashboardName = 'start-${base}'
-var dashboardUrl = '${portalBase}/dashboard/arm${resourceGroup().id}/providers/Microsoft.Portal/dashboards/${dashboardName}'
-var foundryOnlyNames = map(filter(effectiveModels, m => !(m.?gateway ?? true)), m => m.?deploymentName ?? m.name)
+// The Start here workbook is attached to the resource group, so it appears in the resource list
+// and under the group's Workbooks menu. Its name is fixed so the next-steps link can point to it.
+var startHereName = guid(resourceGroup().id, base, 'start-here')
+var startHereUrl = '${portalBase}/resource${resourceId('Microsoft.Insights/workbooks', startHereName)}/workbook'
 var decisionGatewayNames = map(filter(gatewayModelList, m => contains(m.?endpoints ?? [], '/providers/microsoft/v1/systemone')), m => m.?deploymentName ?? m.name)
 var chatAliasNames = filter(aliasNames, a => !contains(decisionGatewayNames, a))
-var nextStepsUrl = '${nextStepsBaseUrl}#kind=aigateway&gateway=${uriComponent(take(gatewayEndpoint, length(gatewayEndpoint) - 1))}&aigw=${uriComponent(aiGateway.name)}&aigwId=${uriComponent(aiGateway.id)}&models=${uriComponent(join(chatAliasNames, ','))}&decision=${uriComponent(join(decisionGatewayNames, ','))}&foundry=${uriComponent(modelAccount.id)}&insights=${uriComponent(gatewayInsights.id)}&dashboard=${uriComponent(dashboardUrl)}&budget=${monthlyBudget}&rg=${uriComponent(resourceGroup().id)}&tenant=${tenant().tenantId}'
+var nextStepsUrl = '${nextStepsBaseUrl}#kind=aigateway&gateway=${uriComponent(take(gatewayEndpoint, length(gatewayEndpoint) - 1))}&aigw=${uriComponent(aiGateway.name)}&aigwId=${uriComponent(aiGateway.id)}&models=${uriComponent(join(chatAliasNames, ','))}&decision=${uriComponent(join(decisionGatewayNames, ','))}&foundry=${uriComponent(modelAccount.id)}&insights=${uriComponent(gatewayInsights.id)}&dashboard=${uriComponent(startHereUrl)}&budget=${monthlyBudget}&rg=${uriComponent(resourceGroup().id)}&tenant=${tenant().tenantId}'
 var startHereMarkdown = join([
   '## Your AI Gateway is ready'
   ''
-  'Call models at **${gatewayEndpoint}** with your Microsoft Entra account. The account that deployed this stack already has access.'
+  'Call models at **${gatewayEndpoint}** with your Microsoft Entra account. The account that deployed this stack already has access. Give others access with the **AI Gateway User** role.'
   ''
-  '**Models:** ${join(aliasNames, ', ')}${empty(foundryOnlyNames) ? '' : ' (Foundry only: ${join(foundryOnlyNames, ', ')})'}'
-  ''
-  '### Next steps'
-  '1. [Open the next-steps page](${nextStepsUrl}) for copy-ready calls and settings.'
-  '2. Try a call from a terminal:'
-  '```'
+  '```bash'
   'TOKEN=$(az account get-access-token --resource ${tokenAudience} --query accessToken -o tsv)'
   'curl -s ${chatUrl} -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d \'{"model":"${firstModel}","messages":[{"role":"user","content":"Hello"}]}\''
   '```'
-  '3. Give others access: assign the **AI Gateway User** role on [the gateway resource](${portalBase}/resource${aiGateway.id}/users).'
-  '4. See traces with token usage in [Application Insights](${portalBase}/resource${gatewayInsights.id}/logs).'
-  '5. Track spend against the **${monthlyBudget} per month** budget in [Cost analysis](${portalBase}/resource${resourceGroup().id}/costanalysis).'
-  '6. Manage models and policies in the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways) (preview). Gateways created from templates may not appear in its list yet.'
+  ''
+  'The **next steps** page has copy-ready calls for every model, including decision models. The monthly budget is **${monthlyBudget}** in your billing currency.'
 ], '\n')
-
-resource startDashboard 'Microsoft.Portal/dashboards@2020-09-01-preview' = {
-  name: dashboardName
-  location: location
-  tags: union(tags, {
-    'hidden-title': 'Start here: ${gatewayName}'
-  })
-  properties: {
-    lenses: [
-      {
-        order: 0
-        parts: [
+var linkId = guid(resourceGroup().id, base, 'start-here-links')
+var startHereLinks = [
+  { id: '${linkId}-1', cellValue: nextStepsUrl, linkTarget: 'Url', linkLabel: 'Next steps and code', style: 'primary', icon: 'Info' }
+  { id: '${linkId}-2', cellValue: aiGateway.id, linkTarget: 'ResourceOverview', subTarget: 'users', linkLabel: 'Grant access', style: 'secondary', icon: 'Security' }
+  { id: '${linkId}-3', cellValue: gatewayInsights.id, linkTarget: 'ResourceOverview', subTarget: 'logs', linkLabel: 'Traces', style: 'secondary', icon: 'Search' }
+  { id: '${linkId}-4', cellValue: resourceGroup().id, linkTarget: 'ResourceOverview', subTarget: 'costanalysis', linkLabel: 'Cost analysis', style: 'secondary', icon: 'Cost' }
+  { id: '${linkId}-5', cellValue: 'https://ai.azure.com/resource/overview?wsid=${uriComponent(modelAccount.id)}&tid=${tenant().tenantId}', linkTarget: 'Url', linkLabel: 'Microsoft Foundry', style: 'secondary', icon: 'Info' }
+  { id: '${linkId}-6', cellValue: 'https://ai.gateway.azure.com/ai-gateways', linkTarget: 'Url', linkLabel: 'AI Gateway portal', style: 'secondary', icon: 'Info' }
+]
+// Live list of the aliases callers can use, read from the gateway when the workbook opens.
+var aliasesQuery = {
+  version: 'ARMEndpoint/1.0'
+  data: null
+  headers: []
+  method: 'GET'
+  path: '${aiGateway.id}/workspaces/${workspaceName}/aliases'
+  urlParams: [
+    { key: 'api-version', value: '2025-09-01-preview' }
+  ]
+  batchDisabled: false
+  transformers: [
+    {
+      type: 'jsonpath'
+      settings: {
+        tablePath: '$.value'
+        columns: [
+          { path: '$.name', columnid: 'Model' }
+          { path: '$.properties.gatewayEndpoints[0].url', columnid: 'Endpoint' }
+          { path: '$.properties.description', columnid: 'Description' }
+        ]
+      }
+    }
+  ]
+}
+var usageBase = 'requests | where name has "/default/models/" | extend Model = tostring(customDimensions["gen_ai.response.model"]), Tokens = toint(customMeasurements["gen_ai.usage.input_tokens"]) + toint(customMeasurements["gen_ai.usage.output_tokens"])'
+var logsItem = {
+  version: 'KqlItem/1.0'
+  size: 0
+  timeContextFromParameter: 'TimeRange'
+  queryType: 0
+  resourceType: 'microsoft.insights/components'
+  crossComponentResources: [ gatewayInsights.id ]
+}
+var startHereData = {
+  version: 'Notebook/1.0'
+  items: [
+    { type: 1, name: 'intro', content: { json: startHereMarkdown } }
+    { type: 11, name: 'actions', content: { version: 'LinkItem/1.0', style: 'toolbar', links: startHereLinks } }
+    {
+      type: 3
+      name: 'models'
+      content: {
+        version: 'KqlItem/1.0'
+        query: string(aliasesQuery)
+        size: 1
+        title: 'Models you can call'
+        noDataMessage: 'No models yet. Check that the deployment finished.'
+        queryType: 12
+        visualization: 'table'
+      }
+    }
+    {
+      type: 9
+      name: 'time'
+      content: {
+        version: 'KqlParameterItem/1.0'
+        style: 'pills'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        parameters: [
           {
-            position: { x: 0, y: 0, colSpan: 8, rowSpan: 9 }
-            metadata: {
-              inputs: []
-              type: 'Extension/HubsExtension/PartType/MarkdownPart'
-              settings: {
-                content: {
-                  settings: {
-                    content: startHereMarkdown
-                    title: 'Start here'
-                    subtitle: gatewayName
-                  }
-                }
-              }
-            }
-          }
-          {
-            position: { x: 8, y: 0, colSpan: 6, rowSpan: 4 }
-            metadata: {
-              inputs: [
-                {
-                  name: 'options'
-                  isOptional: true
-                  value: {
-                    chart: {
-                      metrics: [
-                        {
-                          resourceMetadata: { id: gatewayInsights.id }
-                          name: 'requests/count'
-                          aggregationType: 7
-                          namespace: 'microsoft.insights/components'
-                          metricVisualization: { displayName: 'Gateway requests' }
-                        }
-                      ]
-                      title: 'Gateway requests'
-                      titleKind: 1
-                      visualization: { chartType: 2 }
-                      timespan: { relative: { duration: 86400000 }, showUTCTime: false, grain: 1 }
-                    }
-                  }
-                }
-                {
-                  name: 'sharedTimeRange'
-                  isOptional: true
-                }
+            id: guid(resourceGroup().id, base, 'start-here-time')
+            version: 'KqlParameterItem/1.0'
+            name: 'TimeRange'
+            label: 'Time range'
+            type: 4
+            isRequired: true
+            value: { durationMs: 86400000 }
+            typeSettings: {
+              selectableValues: [
+                { durationMs: 3600000 }
+                { durationMs: 86400000 }
+                { durationMs: 604800000 }
+                { durationMs: 2592000000 }
               ]
-              #disable-next-line BCP036
-              type: 'Extension/HubsExtension/PartType/MonitorChartPart'
-              settings: {}
-            }
-          }
-          {
-            position: { x: 8, y: 4, colSpan: 6, rowSpan: 4 }
-            metadata: {
-              inputs: [
-                {
-                  name: 'options'
-                  isOptional: true
-                  value: {
-                    chart: {
-                      metrics: [
-                        {
-                          resourceMetadata: { id: gatewayInsights.id }
-                          name: 'requests/failed'
-                          aggregationType: 7
-                          namespace: 'microsoft.insights/components'
-                          metricVisualization: { displayName: 'Failed requests' }
-                        }
-                      ]
-                      title: 'Failed requests'
-                      titleKind: 1
-                      visualization: { chartType: 2 }
-                      timespan: { relative: { duration: 86400000 }, showUTCTime: false, grain: 1 }
-                    }
-                  }
-                }
-                {
-                  name: 'sharedTimeRange'
-                  isOptional: true
-                }
-              ]
-              #disable-next-line BCP036
-              type: 'Extension/HubsExtension/PartType/MonitorChartPart'
-              settings: {}
+              allowCustom: true
             }
           }
         ]
       }
-    ]
-    metadata: {
-      model: {
-        timeRange: {
-          value: { relative: { duration: 24, timeUnit: 1 } }
-          type: 'MsPortalFx.Composition.Configuration.ValueTypes.TimeRange'
-        }
-      }
     }
+    {
+      type: 3
+      name: 'tokens'
+      customWidth: '50'
+      content: union(logsItem, {
+        query: '${usageBase} | summarize Tokens = sum(Tokens) by bin(timestamp, {TimeRange:grain}), Model | render timechart'
+        title: 'Tokens by model'
+        noDataMessage: 'No calls in this time range yet.'
+        visualization: 'timechart'
+      })
+    }
+    {
+      type: 3
+      name: 'failures'
+      customWidth: '50'
+      content: union(logsItem, {
+        query: 'requests | where name has "/default/models/" | summarize Calls = count(), Failed = countif(success == false) by bin(timestamp, {TimeRange:grain}) | render timechart'
+        title: 'Calls and failures'
+        noDataMessage: 'No calls in this time range yet.'
+        visualization: 'timechart'
+      })
+    }
+    {
+      type: 3
+      name: 'calls'
+      content: union(logsItem, {
+        query: '${usageBase} | summarize Calls = count(), Failed = countif(success == false), Tokens = sum(Tokens), AvgMs = round(avg(duration), 0) by Model, Operation = name | order by Calls desc'
+        title: 'Calls by model'
+        noDataMessage: 'No calls in this time range yet.'
+        visualization: 'table'
+      })
+    }
+  ]
+  isLocked: false
+  fallbackResourceIds: [ resourceGroup().id ]
+}
+
+resource startHere 'Microsoft.Insights/workbooks@2023-06-01' = {
+  name: startHereName
+  location: location
+  tags: tags
+  kind: 'shared'
+  properties: {
+    displayName: 'Start here: ${gatewayName}'
+    category: 'workbook'
+    sourceId: toLower(resourceGroup().id)
+    serializedData: string(startHereData)
+    version: 'Notebook/1.0'
   }
+  dependsOn: [ gatewayAliases ]
 }
 
 // ---------------------------------------------------------------------------
@@ -569,8 +594,8 @@ resource startDashboard 'Microsoft.Portal/dashboards@2020-09-01-preview' = {
 // testing; getApiKeyCommand reads it (the key itself is never output).
 // ---------------------------------------------------------------------------
 
-@description('Start here: portal dashboard with next steps and live gateway charts.')
-output startHere string = dashboardUrl
+@description('Start here: workbook in the Azure portal with live models, usage charts and next steps.')
+output startHere string = startHereUrl
 @description('Next-steps web page with copy-ready calls for this deployment.')
 output nextStepsUrl string = nextStepsUrl
 output monthlyBudget int = monthlyBudget
