@@ -83,14 +83,17 @@ param monthlyBudget int = 100
 @description('Optional email address for budget alerts. Resource group owners are always notified.')
 param budgetAlertEmail string = ''
 
-@description('First day of the budget period (the first of a month). Azure cannot change a budget start date, so keep this fixed across redeployments.')
-param budgetStartDate string = '2026-01-01'
+@description('First day of the budget period. New budgets must start in the current month, and Azure cannot change the start date later, so when you redeploy in a later month pass the original start date.')
+param budgetStartDate string = utcNow('yyyy-MM-01')
 
 @description('Web page that shows next steps for this deployment. The deployment appends its values to the URL fragment.')
 param nextStepsBaseUrl string = 'https://brk-tech-sovereign-ai.azurewebsites.net/next-steps.html'
 
 @description('Sovereign AI site endpoint that records when this deployment starts and finishes, so the site can follow it and list it under Your deployments. Sends the tenant, subscription, resource group and deployment names, your Entra object ID and the next-steps values. Leave empty to turn off.')
 param reportUrl string = 'https://brk-tech-sovereign-ai.azurewebsites.net/api/deployments/report'
+
+@description('Reports are sent only for deployments in this Entra tenant (BRK Commons), so deployments elsewhere send nothing.')
+param reportTenantId string = '1bda714c-00fe-4c7e-aa71-875d787e9d77'
 
 @description('Unique value for each run, so Azure fetches the report URL again on redeploys.')
 param reportNonce string = newGuid()
@@ -255,7 +258,7 @@ resource aiGateway 'Microsoft.ApiManagement/aigateways@2025-09-01-preview' = {
     type: 'SystemAssigned'
   }
   sku: {
-    name: 'Premium'
+    name: 'Standard'
   }
   properties: {}
 }
@@ -599,13 +602,15 @@ resource startHere 'Microsoft.Insights/workbooks@2023-06-01' = {
 // Deployment reports: Azure has no redirect after a deployment, so the briefing site follows it.
 // Azure fetches each report URL as an empty linked template: once at the start, and once after
 // everything else with the next-steps values. The site matches reports to the signed-in user by
-// Entra object ID. Set reportUrl to '' to turn this off.
+// Entra object ID. Reports go only from the site's own tenant (reportTenantId). Set reportUrl to ''
+// to turn this off.
 // ---------------------------------------------------------------------------
+var sendReports = !empty(reportUrl) && tenant().tenantId == reportTenantId
 var reportQuery = 'tenant=${tenant().tenantId}&sub=${subscription().subscriptionId}&rg=${uriComponent(resourceGroup().name)}&deployment=${uriComponent(deployment().name)}&oid=${deployerId}&n=${reportNonce}'
 
 // A module can't take a template URL built at deployment time, so this stays a deployments resource.
 #disable-next-line no-deployments-resources
-resource reportStarted 'Microsoft.Resources/deployments@2022-09-01' = if (!empty(reportUrl)) {
+resource reportStarted 'Microsoft.Resources/deployments@2022-09-01' = if (sendReports) {
   name: 'report-started-${base}'
   properties: {
     mode: 'Incremental'
@@ -617,7 +622,7 @@ resource reportStarted 'Microsoft.Resources/deployments@2022-09-01' = if (!empty
 
 // A module can't take a template URL built at deployment time, so this stays a deployments resource.
 #disable-next-line no-deployments-resources
-resource reportFinished 'Microsoft.Resources/deployments@2022-09-01' = if (!empty(reportUrl)) {
+resource reportFinished 'Microsoft.Resources/deployments@2022-09-01' = if (sendReports) {
   name: 'report-finished-${base}'
   properties: {
     mode: 'Incremental'

@@ -28,7 +28,7 @@ The briefing's reference implementation section links to this template:
 
 | Resource | Purpose |
 |---|---|
-| AI Gateway (Premium, preview) | One endpoint for all models, Entra ID access control, aliases with failover |
+| AI Gateway (Standard, preview) | One endpoint for all models, Entra ID access control, aliases with failover |
 | Connector gateway with the same name | Pairs the gateway with the [AI Gateway portal](https://ai.gateway.azure.com/ai-gateways) |
 | Azure AI Services account (Foundry) | Model deployments; local keys disabled, so only the gateway and Entra callers reach it |
 | Application Insights | Gateway traces |
@@ -72,6 +72,9 @@ the tenant, subscription, resource group and deployment names, the deployer's En
 object ID and, at the end, the next-steps values (gateway URL, model names and resource
 IDs). No keys or secrets are sent. The site shows each person only the deployments whose
 object ID matches their own sign-in.
+
+Reports are sent only when you deploy into the BRK Commons tenant, where the site's users sign
+in. Deployments in any other tenant send nothing.
 
 To turn reports off, clear **Report deployment status** in the portal form, or set
 `reportUrl` to an empty string. If the site can't be reached, the report step fails the
@@ -156,6 +159,12 @@ requests
           outputTokens = toint(customMeasurements["gen_ai.usage.output_tokens"])
 | order by timestamp desc
 ```
+
+## Redeploy
+
+Redeploying into the same resource group updates the stack. Azure can't change a budget's
+start date, so in a later month pass the original one, for example
+`budgetStartDate=2026-11-01`.
 
 ## Before you deploy
 

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "17741406831681356458"
+      "templateHash": "5911105240403673589"
     }
   },
   "parameters": {
@@ -183,9 +183,9 @@
     },
     "budgetStartDate": {
       "type": "string",
-      "defaultValue": "2026-01-01",
+      "defaultValue": "[utcNow('yyyy-MM-01')]",
       "metadata": {
-        "description": "First day of the budget period (the first of a month). Azure cannot change a budget start date, so keep this fixed across redeployments."
+        "description": "First day of the budget period. New budgets must start in the current month, and Azure cannot change the start date later, so when you redeploy in a later month pass the original start date."
       }
     },
     "nextStepsBaseUrl": {
@@ -200,6 +200,13 @@
       "defaultValue": "https://brk-tech-sovereign-ai.azurewebsites.net/api/deployments/report",
       "metadata": {
         "description": "Sovereign AI site endpoint that records when this deployment starts and finishes, so the site can follow it and list it under Your deployments. Sends the tenant, subscription, resource group and deployment names, your Entra object ID and the next-steps values. Leave empty to turn off."
+      }
+    },
+    "reportTenantId": {
+      "type": "string",
+      "defaultValue": "1bda714c-00fe-4c7e-aa71-875d787e9d77",
+      "metadata": {
+        "description": "Reports are sent only for deployments in this Entra tenant (BRK Commons), so deployments elsewhere send nothing."
       }
     },
     "reportNonce": {
@@ -317,6 +324,7 @@
         "[resourceId('Microsoft.Insights/components', format('{0}-insights', variables('gatewayName')))]"
       ]
     },
+    "sendReports": "[and(not(empty(parameters('reportUrl'))), equals(tenant().tenantId, parameters('reportTenantId')))]",
     "reportQuery": "[format('tenant={0}&sub={1}&rg={2}&deployment={3}&oid={4}&n={5}', tenant().tenantId, subscription().subscriptionId, uriComponent(resourceGroup().name), uriComponent(deployment().name), variables('deployerId'), parameters('reportNonce'))]"
   },
   "resources": [
@@ -432,7 +440,7 @@
         "type": "SystemAssigned"
       },
       "sku": {
-        "name": "Premium"
+        "name": "Standard"
       },
       "properties": {}
     },
@@ -644,7 +652,7 @@
       ]
     },
     {
-      "condition": "[not(empty(parameters('reportUrl')))]",
+      "condition": "[variables('sendReports')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2022-09-01",
       "name": "[format('report-started-{0}', variables('base'))]",
@@ -656,7 +664,7 @@
       }
     },
     {
-      "condition": "[not(empty(parameters('reportUrl')))]",
+      "condition": "[variables('sendReports')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2022-09-01",
       "name": "[format('report-finished-{0}', variables('base'))]",
