@@ -200,6 +200,12 @@
             "type": "Microsoft.Common.CheckBox",
             "label": "Capture request and response payloads in traces (needed for token usage and model in traces; stores prompt and completion text)",
             "defaultValue": true
+          },
+          {
+            "name": "reportStatus",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Report deployment status to the Sovereign AI site, so it can follow this deployment and open its next steps (sends tenant, subscription, resource group and deployment names, your Entra object ID and the next-steps links)",
+            "defaultValue": true
           }
         ]
       }
@@ -212,7 +218,8 @@
       "capacityOverride": "[steps('models').capacity]",
       "principalId": "[steps('access').principalId]",
       "principalType": "[if(empty(steps('access').principalId), 'User', steps('access').principalType)]",
-      "payloadCapture": "[steps('telemetry').payloadCapture]"
+      "payloadCapture": "[steps('telemetry').payloadCapture]",
+      "reportUrl": "[if(steps('telemetry').reportStatus, 'https://brk-tech-sovereign-ai.azurewebsites.net/api/deployments/report', '')]"
     }
   }
 }

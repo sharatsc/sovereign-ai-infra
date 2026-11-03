@@ -61,7 +61,21 @@ Azure has no redirect after a deployment, so the template gives you two landing 
 
 If you start from the Deploy to Azure button on the Sovereign AI briefing site, the site
 follows the deployment and opens the next-steps page when it finishes. Its **Your
-deployments** page lists the reference deployments you can see.
+deployments** page lists the deployments you started.
+
+### Deployment status reports
+
+To make that work, the template reports to the briefing site twice: when the deployment
+starts and when everything else has finished. Azure fetches the `reportUrl` as an empty
+linked template, so no extension or script runs in your subscription. Each report sends
+the tenant, subscription, resource group and deployment names, the deployer's Entra
+object ID and, at the end, the next-steps values (gateway URL, model names and resource
+IDs). No keys or secrets are sent. The site shows each person only the deployments whose
+object ID matches their own sign-in.
+
+To turn reports off, clear **Report deployment status** in the portal form, or set
+`reportUrl` to an empty string. If the site can't be reached, the report step fails the
+deployment, so turn reports off for deployments that must not depend on it.
 
 The deployment's **Outputs** in the Azure portal list everything a consumer needs:
 

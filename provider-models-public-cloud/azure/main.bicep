@@ -89,6 +89,12 @@ param budgetStartDate string = '2026-01-01'
 @description('Web page that shows next steps for this deployment. The deployment appends its values to the URL fragment.')
 param nextStepsBaseUrl string = 'https://brk-tech-sovereign-ai.azurewebsites.net/next-steps.html'
 
+@description('Sovereign AI site endpoint that records when this deployment starts and finishes, so the site can follow it and list it under Your deployments. Sends the tenant, subscription, resource group and deployment names, your Entra object ID and the next-steps values. Leave empty to turn off.')
+param reportUrl string = 'https://brk-tech-sovereign-ai.azurewebsites.net/api/deployments/report'
+
+@description('Unique value for each run, so Azure fetches the report URL again on redeploys.')
+param reportNonce string = newGuid()
+
 var chosenModels = empty(selectedModels) ? models : filter(models, m => contains(selectedModels, m.?deploymentName ?? m.name))
 var effectiveModels = map(chosenModels, m => capacityOverride > 0 ? union(m, { capacity: capacityOverride }) : m)
 var token = take(toLower(uniqueString(resourceGroup().id, namePrefix)), 6)
@@ -432,7 +438,8 @@ var startHereName = guid(resourceGroup().id, base, 'start-here')
 var startHereUrl = '${portalBase}/resource${resourceId('Microsoft.Insights/workbooks', startHereName)}/workbook'
 var decisionGatewayNames = map(filter(gatewayModelList, m => contains(m.?endpoints ?? [], '/providers/microsoft/v1/systemone')), m => m.?deploymentName ?? m.name)
 var chatAliasNames = filter(aliasNames, a => !contains(decisionGatewayNames, a))
-var nextStepsUrl = '${nextStepsBaseUrl}#kind=aigateway&gateway=${uriComponent(take(gatewayEndpoint, length(gatewayEndpoint) - 1))}&aigw=${uriComponent(aiGateway.name)}&aigwId=${uriComponent(aiGateway.id)}&models=${uriComponent(join(chatAliasNames, ','))}&decision=${uriComponent(join(decisionGatewayNames, ','))}&foundry=${uriComponent(modelAccount.id)}&insights=${uriComponent(gatewayInsights.id)}&dashboard=${uriComponent(startHereUrl)}&budget=${monthlyBudget}&rg=${uriComponent(resourceGroup().id)}&tenant=${tenant().tenantId}'
+var nextStepsFragment = 'kind=aigateway&gateway=${uriComponent(take(gatewayEndpoint, length(gatewayEndpoint) - 1))}&aigw=${uriComponent(aiGateway.name)}&aigwId=${uriComponent(aiGateway.id)}&models=${uriComponent(join(chatAliasNames, ','))}&decision=${uriComponent(join(decisionGatewayNames, ','))}&foundry=${uriComponent(modelAccount.id)}&insights=${uriComponent(gatewayInsights.id)}&dashboard=${uriComponent(startHereUrl)}&budget=${monthlyBudget}&rg=${uriComponent(resourceGroup().id)}&tenant=${tenant().tenantId}'
+var nextStepsUrl = '${nextStepsBaseUrl}#${nextStepsFragment}'
 var startHereMarkdown = join([
   '## Your AI Gateway is ready'
   ''
@@ -586,6 +593,47 @@ resource startHere 'Microsoft.Insights/workbooks@2023-06-01' = {
     version: 'Notebook/1.0'
   }
   dependsOn: [ gatewayAliases ]
+}
+
+// ---------------------------------------------------------------------------
+// Deployment reports: Azure has no redirect after a deployment, so the briefing site follows it.
+// Azure fetches each report URL as an empty linked template: once at the start, and once after
+// everything else with the next-steps values. The site matches reports to the signed-in user by
+// Entra object ID. Set reportUrl to '' to turn this off.
+// ---------------------------------------------------------------------------
+var reportQuery = 'tenant=${tenant().tenantId}&sub=${subscription().subscriptionId}&rg=${uriComponent(resourceGroup().name)}&deployment=${uriComponent(deployment().name)}&oid=${deployerId}&n=${reportNonce}'
+
+// A module can't take a template URL built at deployment time, so this stays a deployments resource.
+#disable-next-line no-deployments-resources
+resource reportStarted 'Microsoft.Resources/deployments@2022-09-01' = if (!empty(reportUrl)) {
+  name: 'report-started-${base}'
+  properties: {
+    mode: 'Incremental'
+    templateLink: {
+      uri: '${reportUrl}?event=started&${reportQuery}'
+    }
+  }
+}
+
+// A module can't take a template URL built at deployment time, so this stays a deployments resource.
+#disable-next-line no-deployments-resources
+resource reportFinished 'Microsoft.Resources/deployments@2022-09-01' = if (!empty(reportUrl)) {
+  name: 'report-finished-${base}'
+  properties: {
+    mode: 'Incremental'
+    templateLink: {
+      uri: '${reportUrl}?event=finished&${reportQuery}&gateway=${uriComponent(aiGateway.name)}&next=${uriComponent(nextStepsFragment)}'
+    }
+  }
+  dependsOn: [
+    startHere
+    budget
+    telemetryExporter
+    gatewayModels
+    gatewayUserForDeployer
+    modelUserForDeployer
+    reportStarted
+  ]
 }
 
 // ---------------------------------------------------------------------------
