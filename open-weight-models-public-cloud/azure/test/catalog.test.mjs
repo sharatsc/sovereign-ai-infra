@@ -1,5 +1,5 @@
 // Checks catalog.json: pinned versions, sovereignty fields, prices and the monthly estimate.
-// Run: node --test open-weight-models-public-cloud/azure/test/
+// Run: node --test 'open-weight-models-public-cloud/azure/test/*.test.mjs'
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,7 +21,9 @@ test('every option is pinned and priced', () => {
   for (const [key, m] of models) {
     for (const [optionKey, o] of Object.entries(m.options)) {
       const name = `${key}/${optionKey}`;
-      assert.match(o.template, /\/deploymenttemplates\/[^/]+\/versions\/\d+$/, `${name} template`);
+      // Managed compute accepts only labels/latest templates; the tested version is recorded.
+      assert.match(o.template, /\/deploymenttemplates\/[^/]+\/labels\/latest$/, `${name} template`);
+      assert.ok(Number.isInteger(o.templateVersion) && o.templateVersion > 0, `${name} templateVersion`);
       assert.ok(Object.hasOwn(catalog.rateCentsPerAcceleratorHour, o.accelerator), `${name} accelerator`);
       assert.ok(o.count === 1 || o.count === 2, `${name} count`);
       assert.ok(o.context > 0, `${name} context`);

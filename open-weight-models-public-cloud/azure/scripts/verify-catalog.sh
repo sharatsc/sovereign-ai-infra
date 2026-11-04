@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Checks catalog.json against the azure-huggingface registry: every pinned model version and
-# deployment template version resolves, each template's accelerator type and count match the
-# catalog, and each template is one the model allows. Prints OK or MISMATCH per option and
-# exits non-zero on any mismatch. Needs az CLI with the ml extension, signed in.
+# Checks catalog.json against the azure-huggingface registry: every pinned model version
+# resolves, each deployment template's labels/latest still resolves to the tested templateVersion,
+# its accelerator type and count match the catalog, and the model allows the template. Managed
+# compute accepts only labels/latest templates, so this is how a template change is caught before
+# the next deploy. Prints OK or MISMATCH per option and exits non-zero on any mismatch. Needs az
+# CLI with the ml extension, signed in.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,9 +17,10 @@ trap 'rm -rf "$tmp"' EXIT
 node -e '
 const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 const part = id => id.match(/\/([^/]+)\/versions\/(\d+)$/).slice(1).join(" ");
+const name = id => id.match(/\/deploymenttemplates\/([^/]+)\/labels\/latest$/)[1];
 for (const [k, m] of Object.entries(c.models))
   for (const [o, v] of Object.entries(m.options))
-    console.log([k, o, part(m.model), part(v.template), v.accelerator, v.count].join(" "));
+    console.log([k, o, part(m.model), name(v.template), v.templateVersion, v.accelerator, v.count].join(" "));
 ' "$catalog" > "$tmp/options"
 
 failed=0
@@ -28,18 +31,20 @@ while read -r key option model model_version template template_version accelerat
     az ml model show --registry-name azure-huggingface -n "$model" -v "$model_version" -o json 2>/dev/null \
       | sed -n '/^{/,$p' > "$model_json"
   fi
-  template_json="$tmp/template-$template-$template_version.json"
+  template_json="$tmp/template-$template.json"
   az rest --resource https://ml.azure.com --method get \
-    --url "$registry_api/$template/versions/$template_version?api-version=2026-05-01-preview" \
+    --url "$registry_api/$template/labels/latest?api-version=2026-05-01-preview" \
     -o json > "$template_json" 2>/dev/null
 
   problem=$(node -e '
 const fs = require("fs");
-const [modelFile, templateFile, template, accelerator, count] = process.argv.slice(1);
+const [modelFile, templateFile, template, templateVersion, accelerator, count] = process.argv.slice(1);
 const read = f => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return null; } };
 const m = read(modelFile), t = read(templateFile), out = [];
 if (!m) out.push("model version not found");
-if (!t) out.push("template version not found");
+if (!t) out.push("template labels/latest not found");
+if (t && String(t.version) !== templateVersion)
+  out.push(`labels/latest is version ${t.version}, catalog tested version ${templateVersion}`);
 if (t) {
   const a = (t.acceleratorMaps || [])[0] || {};
   if (a.acceleratorType !== accelerator || String(a.numberOfAcceleratorsPerModelInstance) !== count)
@@ -50,7 +55,7 @@ if (m) {
   if (!allowed.includes(template)) out.push("template not in the model allowed list");
 }
 console.log(out.join("; "));
-' "$model_json" "$template_json" "$template" "$accelerator" "$count")
+' "$model_json" "$template_json" "$template" "$template_version" "$accelerator" "$count")
 
   if [ -z "$problem" ]; then
     echo "OK $key/$option"

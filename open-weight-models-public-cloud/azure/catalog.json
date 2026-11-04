@@ -15,9 +15,9 @@
       "deploymentName": "gpt-oss-20b",
       "defaultOption": "a100",
       "options": {
-        "a100": { "label": "1 × NVIDIA A100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-nvidia-a100/versions/13", "accelerator": "A100_80GB", "count": 1, "context": 131072 },
-        "h100": { "label": "1 × NVIDIA H100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-nvidia-h100/versions/13", "accelerator": "H100_80GB", "count": 1, "context": 131072 },
-        "mi300x": { "label": "1 × AMD MI300X 192 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-amd-mi300x/versions/9", "accelerator": "MI300_192GB", "count": 1, "context": 131072 }
+        "a100": { "label": "1 × NVIDIA A100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-nvidia-a100/labels/latest", "templateVersion": 13, "accelerator": "A100_80GB", "count": 1, "context": 131072 },
+        "h100": { "label": "1 × NVIDIA H100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-nvidia-h100/labels/latest", "templateVersion": 13, "accelerator": "H100_80GB", "count": 1, "context": 131072 },
+        "mi300x": { "label": "1 × AMD MI300X 192 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-amd-mi300x/labels/latest", "templateVersion": 9, "accelerator": "MI300_192GB", "count": 1, "context": 131072 }
       }
     },
     "nemotron-35-lightning-30b": {
@@ -31,10 +31,10 @@
       "deploymentName": "nemotron-35-lightning-30b",
       "defaultOption": "a100",
       "options": {
-        "a100": { "label": "1 × NVIDIA A100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-a100/versions/4", "accelerator": "A100_80GB", "count": 1, "context": 262144 },
-        "h100": { "label": "1 × NVIDIA H100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-h100/versions/4", "accelerator": "H100_80GB", "count": 1, "context": 262144 },
-        "2xa100": { "label": "2 × NVIDIA A100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-2xa100/versions/4", "accelerator": "A100_80GB", "count": 2, "context": 262144 },
-        "2xh100": { "label": "2 × NVIDIA H100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-2xh100/versions/4", "accelerator": "H100_80GB", "count": 2, "context": 262144 }
+        "a100": { "label": "1 × NVIDIA A100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-a100/labels/latest", "templateVersion": 4, "accelerator": "A100_80GB", "count": 1, "context": 262144 },
+        "h100": { "label": "1 × NVIDIA H100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-h100/labels/latest", "templateVersion": 4, "accelerator": "H100_80GB", "count": 1, "context": 262144 },
+        "2xa100": { "label": "2 × NVIDIA A100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-2xa100/labels/latest", "templateVersion": 4, "accelerator": "A100_80GB", "count": 2, "context": 262144 },
+        "2xh100": { "label": "2 × NVIDIA H100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-2xh100/labels/latest", "templateVersion": 4, "accelerator": "H100_80GB", "count": 2, "context": 262144 }
       }
     },
     "muse-glimmer-30b": {
@@ -48,11 +48,11 @@
       "deploymentName": "muse-glimmer-30b",
       "defaultOption": "a100",
       "options": {
-        "a100": { "label": "1 × NVIDIA A100 80 GB, 64K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--64k-nvidia-a100/versions/5", "accelerator": "A100_80GB", "count": 1, "context": 65536 },
-        "h100": { "label": "1 × NVIDIA H100 80 GB, 64K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--64k-nvidia-h100/versions/5", "accelerator": "H100_80GB", "count": 1, "context": 65536 },
-        "2xa100": { "label": "2 × NVIDIA A100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-nvidia-2xa100/versions/5", "accelerator": "A100_80GB", "count": 2, "context": 131072 },
-        "2xh100": { "label": "2 × NVIDIA H100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-nvidia-2xh100/versions/5", "accelerator": "H100_80GB", "count": 2, "context": 131072 },
-        "mi300x": { "label": "1 × AMD MI300X 192 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-amd-mi300x/versions/5", "accelerator": "MI300_192GB", "count": 1, "context": 131072 }
+        "a100": { "label": "1 × NVIDIA A100 80 GB, 64K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--64k-nvidia-a100/labels/latest", "templateVersion": 5, "accelerator": "A100_80GB", "count": 1, "context": 65536 },
+        "h100": { "label": "1 × NVIDIA H100 80 GB, 64K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--64k-nvidia-h100/labels/latest", "templateVersion": 5, "accelerator": "H100_80GB", "count": 1, "context": 65536 },
+        "2xa100": { "label": "2 × NVIDIA A100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-nvidia-2xa100/labels/latest", "templateVersion": 5, "accelerator": "A100_80GB", "count": 2, "context": 131072 },
+        "2xh100": { "label": "2 × NVIDIA H100 80 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-nvidia-2xh100/labels/latest", "templateVersion": 5, "accelerator": "H100_80GB", "count": 2, "context": 131072 },
+        "mi300x": { "label": "1 × AMD MI300X 192 GB, 128K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-amd-mi300x/labels/latest", "templateVersion": 5, "accelerator": "MI300_192GB", "count": 1, "context": 131072 }
       }
     },
     "gemma-4-31b": {
@@ -66,11 +66,11 @@
       "deploymentName": "gemma-4-31b",
       "defaultOption": "a100",
       "options": {
-        "a100": { "label": "1 × NVIDIA A100 80 GB, 16K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--16k-nvidia-a100/versions/19", "accelerator": "A100_80GB", "count": 1, "context": 16384 },
-        "h100": { "label": "1 × NVIDIA H100 80 GB, 16K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--16k-nvidia-h100/versions/19", "accelerator": "H100_80GB", "count": 1, "context": 16384 },
-        "2xa100": { "label": "2 × NVIDIA A100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-nvidia-2xa100/versions/19", "accelerator": "A100_80GB", "count": 2, "context": 262144 },
-        "2xh100": { "label": "2 × NVIDIA H100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-nvidia-2xh100/versions/19", "accelerator": "H100_80GB", "count": 2, "context": 262144 },
-        "mi300x": { "label": "1 × AMD MI300X 192 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-amd-mi300x/versions/18", "accelerator": "MI300_192GB", "count": 1, "context": 262144 }
+        "a100": { "label": "1 × NVIDIA A100 80 GB, 16K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--16k-nvidia-a100/labels/latest", "templateVersion": 19, "accelerator": "A100_80GB", "count": 1, "context": 16384 },
+        "h100": { "label": "1 × NVIDIA H100 80 GB, 16K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--16k-nvidia-h100/labels/latest", "templateVersion": 19, "accelerator": "H100_80GB", "count": 1, "context": 16384 },
+        "2xa100": { "label": "2 × NVIDIA A100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-nvidia-2xa100/labels/latest", "templateVersion": 19, "accelerator": "A100_80GB", "count": 2, "context": 262144 },
+        "2xh100": { "label": "2 × NVIDIA H100 80 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-nvidia-2xh100/labels/latest", "templateVersion": 19, "accelerator": "H100_80GB", "count": 2, "context": 262144 },
+        "mi300x": { "label": "1 × AMD MI300X 192 GB, 256K context", "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-amd-mi300x/labels/latest", "templateVersion": 18, "accelerator": "MI300_192GB", "count": 1, "context": 262144 }
       }
     }
   }
