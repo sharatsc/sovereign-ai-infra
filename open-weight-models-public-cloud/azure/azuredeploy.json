@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "18087054563719167440"
+      "templateHash": "6528386984494704079"
     }
   },
   "parameters": {
@@ -384,7 +384,7 @@
         "type": "SystemAssigned"
       },
       "properties": {
-        "allowProjectManagement": false,
+        "allowProjectManagement": true,
         "customSubDomainName": "[variables('modelAccountName')]",
         "disableLocalAuth": true,
         "publicNetworkAccess": "Enabled",
@@ -392,6 +392,23 @@
           "defaultAction": "Allow"
         }
       }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/projects",
+      "apiVersion": "2026-11-01",
+      "name": "[format('{0}/{1}', variables('modelAccountName'), format('{0}-project', variables('modelAccountName')))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "displayName": "Open weight model",
+        "description": "[format('Project for the managed compute deployment of {0}.', variables('selected').label)]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+      ]
     },
     {
       "type": "Microsoft.CognitiveServices/accounts/managedComputeDeployments",
@@ -408,7 +425,8 @@
         "versionUpgradeOption": "NoAutoUpgrade"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts/projects', variables('modelAccountName'), format('{0}-project', variables('modelAccountName')))]"
       ]
     },
     {

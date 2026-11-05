@@ -128,13 +128,31 @@ resource modelAccount 'Microsoft.CognitiveServices/accounts@2026-11-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    allowProjectManagement: false
+    allowProjectManagement: true
     customSubDomainName: modelAccountName
     disableLocalAuth: true
     publicNetworkAccess: 'Enabled'
     networkAcls: {
       defaultAction: 'Allow'
     }
+  }
+}
+
+// A managed compute deployment serves only if the account has a project when the deployment is
+// created. Without one, the deployment reports Succeeded but every route returns 404 "The
+// specified endpoint does not exist" (route_not_found), and adding a project later doesn't fix it.
+#disable-next-line BCP081
+resource project 'Microsoft.CognitiveServices/accounts/projects@2026-11-01' = {
+  parent: modelAccount
+  name: '${modelAccountName}-project'
+  location: location
+  tags: tags
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    displayName: 'Open weight model'
+    description: 'Project for the managed compute deployment of ${selected.label}.'
   }
 }
 
@@ -154,6 +172,9 @@ resource managedDeployment 'Microsoft.CognitiveServices/accounts/managedComputeD
     acceleratorType: option.accelerator
     versionUpgradeOption: 'NoAutoUpgrade'
   }
+  dependsOn: [
+    project
+  ]
 }
 
 // No Cognitive Services User role for the deployer or principalId on the Foundry account: the
