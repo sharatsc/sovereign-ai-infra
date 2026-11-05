@@ -167,18 +167,18 @@ The briefing's guidance for this variant, and how the template meets it:
 
 ## Stop billing
 
-The deployment is billed every hour it runs. Azure refuses to delete the resource group
-while a managed compute deployment exists, and leaves the deployment billing. Delete the
-managed compute deployment first, wait until it's gone, then delete the resource group and
-purge the Foundry account. The `stopBillingCommand` output has the exact commands, in this
-form:
+Run the `stopBillingCommand` output. The deployment is billed every hour it runs, and
+Azure refuses to delete the resource group while a managed compute deployment exists,
+leaving the deployment billing. So the command deletes the managed compute deployment
+first, waits until it's gone, then deletes the resource group and purges the Foundry
+account. It has this form:
 
 ```bash
 az rest --method delete --url "https://management.azure.com<foundry account ID>/managedComputeDeployments/<model>?api-version=2026-11-01" && while az rest --method get --url "https://management.azure.com<foundry account ID>/managedComputeDeployments/<model>?api-version=2026-11-01" -o none 2>/dev/null; do sleep 30; done && az group delete --subscription <subscription ID> -n <resource group> && az cognitiveservices account purge --subscription <subscription ID> -l eastus2 -g <resource group> -n <account name>
 ```
 
-`az group delete` asks you to confirm and shows the group name. You can also delete the
-deployment in the Foundry portal under **Deployments**, then delete the group.
+`az group delete` asks you to confirm and shows the group name. With Foundry access you can
+also delete it in the Foundry portal under Deployments.
 
 ## Before you deploy
 
