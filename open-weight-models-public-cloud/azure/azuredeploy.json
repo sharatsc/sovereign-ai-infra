@@ -1,0 +1,630 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.48.1.52935",
+      "templateHash": "18087054563719167440"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "allowedValues": [
+        "eastus2"
+      ],
+      "metadata": {
+        "description": "Region for Foundry and monitoring. Managed compute is Global: inference may run in any Azure region, including outside the United States, until Data Zone US is available."
+      }
+    },
+    "aiGatewayLocation": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "allowedValues": [
+        "eastus2"
+      ],
+      "metadata": {
+        "description": "Region for the AI Gateway (preview regions only)."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "sovai",
+      "minLength": 3,
+      "maxLength": 8,
+      "metadata": {
+        "description": "Short lowercase prefix for resource names."
+      }
+    },
+    "modelKey": {
+      "type": "string",
+      "defaultValue": "gpt-oss-20b",
+      "allowedValues": [
+        "gpt-oss-20b",
+        "nemotron-35-lightning-30b",
+        "muse-glimmer-30b",
+        "gemma-4-31b"
+      ],
+      "metadata": {
+        "description": "Model to deploy, a key of catalog.json models."
+      }
+    },
+    "optionKey": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Hardware option for the model, a key of its catalog.json options (a100, h100, 2xa100, 2xh100 or mi300x). Empty uses the model's cheapest option."
+      }
+    },
+    "instances": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 1,
+      "maxValue": 4,
+      "metadata": {
+        "description": "Model instances. Each instance is billed every hour for its accelerators. Global quota is 8 accelerators per family."
+      }
+    },
+    "principalId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional extra Entra object ID (user, group or service principal) to grant access. The account that runs the deployment always gets access."
+      }
+    },
+    "principalType": {
+      "type": "string",
+      "defaultValue": "User",
+      "allowedValues": [
+        "User",
+        "Group",
+        "ServicePrincipal"
+      ],
+      "metadata": {
+        "description": "Type of principalId."
+      }
+    },
+    "payloadCapture": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Capture request and response payloads in gateway traces. Off by default, so prompt and completion text is not stored. Turning it on adds token usage (gen_ai.usage.*) and model attributes to traces and stores prompt and completion text in Application Insights."
+      }
+    },
+    "monthlyBudget": {
+      "type": "int",
+      "defaultValue": 0,
+      "minValue": 0,
+      "metadata": {
+        "description": "Monthly budget for this resource group, in the billing currency. 0 uses the estimated monthly cost plus 10%, rounded up to the next 100. Alerts fire at 80% of actual spend and 100% of forecast spend."
+      }
+    },
+    "budgetAlertEmail": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional email address for budget alerts. Resource group owners are always notified."
+      }
+    },
+    "budgetStartDate": {
+      "type": "string",
+      "defaultValue": "[utcNow('yyyy-MM-01')]",
+      "metadata": {
+        "description": "First day of the budget period. New budgets must start in the current month, and Azure cannot change the start date later, so when you redeploy in a later month pass the original start date."
+      }
+    },
+    "nextStepsBaseUrl": {
+      "type": "string",
+      "defaultValue": "https://brk-tech-sovereign-ai.azurewebsites.net/next-steps.html",
+      "metadata": {
+        "description": "Web page that shows next steps for this deployment. The deployment appends its values to the URL fragment."
+      }
+    },
+    "reportUrl": {
+      "type": "string",
+      "defaultValue": "https://brk-tech-sovereign-ai.azurewebsites.net/api/deployments/report",
+      "metadata": {
+        "description": "Sovereign AI site endpoint that records when this deployment starts and finishes, so the site can follow it and list it under Your deployments. Sends the tenant, subscription, resource group and deployment names, your Entra object ID and the next-steps values. Leave empty to turn off."
+      }
+    },
+    "reportTenantId": {
+      "type": "string",
+      "defaultValue": "1bda714c-00fe-4c7e-aa71-875d787e9d77",
+      "metadata": {
+        "description": "Reports are sent only for deployments in this Entra tenant (BRK Commons), so deployments elsewhere send nothing."
+      }
+    },
+    "reportNonce": {
+      "type": "string",
+      "defaultValue": "[newGuid()]",
+      "metadata": {
+        "description": "Unique value for each run, so Azure fetches the report URL again on redeploys."
+      }
+    }
+  },
+  "variables": {
+    "$fxv#0": {
+      "registry": "azureml://registries/azure-huggingface",
+      "hoursPerMonth": 730,
+      "rateCentsPerAcceleratorHour": {
+        "A100_80GB": 395,
+        "H100_80GB": 791,
+        "MI300_192GB": 791
+      },
+      "ratesSource": "Azure retail prices API, Foundry Models / Managed Compute, Global, 2026-11-04",
+      "models": {
+        "gpt-oss-20b": {
+          "label": "gpt-oss-20b",
+          "publisher": "OpenAI",
+          "summary": "Open-weight reasoning model with MXFP4 quantized weights.",
+          "license": "Apache 2.0",
+          "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+          "huggingFace": "openai/gpt-oss-20b",
+          "model": "azureml://registries/azure-huggingface/models/openai--gpt-oss-20b/versions/7",
+          "deploymentName": "gpt-oss-20b",
+          "defaultOption": "a100",
+          "options": {
+            "a100": {
+              "label": "1 × NVIDIA A100 80 GB, 128K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-nvidia-a100/labels/latest",
+              "templateVersion": 13,
+              "accelerator": "A100_80GB",
+              "count": 1,
+              "context": 131072
+            },
+            "h100": {
+              "label": "1 × NVIDIA H100 80 GB, 128K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-nvidia-h100/labels/latest",
+              "templateVersion": 13,
+              "accelerator": "H100_80GB",
+              "count": 1,
+              "context": 131072
+            },
+            "mi300x": {
+              "label": "1 × AMD MI300X 192 GB, 128K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/openai--gpt-oss-20b--128k-amd-mi300x/labels/latest",
+              "templateVersion": 9,
+              "accelerator": "MI300_192GB",
+              "count": 1,
+              "context": 131072
+            }
+          }
+        },
+        "nemotron-35-lightning-30b": {
+          "label": "Nemotron 3.5 Lightning 30B (NVFP4)",
+          "publisher": "NVIDIA",
+          "summary": "Efficient 30B mixture-of-experts model for long-running agents.",
+          "license": "OpenMDW-1.1",
+          "licenseUrl": "https://openmdw.ai/license/1-1/",
+          "huggingFace": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+          "model": "azureml://registries/azure-huggingface/models/nvidia--nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4/versions/3",
+          "deploymentName": "nemotron-35-lightning-30b",
+          "defaultOption": "a100",
+          "options": {
+            "a100": {
+              "label": "1 × NVIDIA A100 80 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-a100/labels/latest",
+              "templateVersion": 4,
+              "accelerator": "A100_80GB",
+              "count": 1,
+              "context": 262144
+            },
+            "h100": {
+              "label": "1 × NVIDIA H100 80 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-h100/labels/latest",
+              "templateVersion": 4,
+              "accelerator": "H100_80GB",
+              "count": 1,
+              "context": 262144
+            },
+            "2xa100": {
+              "label": "2 × NVIDIA A100 80 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-2xa100/labels/latest",
+              "templateVersion": 4,
+              "accelerator": "A100_80GB",
+              "count": 2,
+              "context": 262144
+            },
+            "2xh100": {
+              "label": "2 × NVIDIA H100 80 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/nvidia--nvidia-nemotron-3-5-lightning-30b-a3b-nvfp4--256k-nvidia-2xh100/labels/latest",
+              "templateVersion": 4,
+              "accelerator": "H100_80GB",
+              "count": 2,
+              "context": 262144
+            }
+          }
+        },
+        "muse-glimmer-30b": {
+          "label": "Muse Glimmer 30B",
+          "publisher": "Meta",
+          "summary": "Dense 30B multimodal model for agentic tool use, reasoning and image understanding.",
+          "license": "Apache 2.0",
+          "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+          "huggingFace": "meta-models/Muse-Glimmer-30B",
+          "model": "azureml://registries/azure-huggingface/models/meta-models--muse-glimmer-30b/versions/2",
+          "deploymentName": "muse-glimmer-30b",
+          "defaultOption": "a100",
+          "options": {
+            "a100": {
+              "label": "1 × NVIDIA A100 80 GB, 64K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--64k-nvidia-a100/labels/latest",
+              "templateVersion": 5,
+              "accelerator": "A100_80GB",
+              "count": 1,
+              "context": 65536
+            },
+            "h100": {
+              "label": "1 × NVIDIA H100 80 GB, 64K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--64k-nvidia-h100/labels/latest",
+              "templateVersion": 5,
+              "accelerator": "H100_80GB",
+              "count": 1,
+              "context": 65536
+            },
+            "2xa100": {
+              "label": "2 × NVIDIA A100 80 GB, 128K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-nvidia-2xa100/labels/latest",
+              "templateVersion": 5,
+              "accelerator": "A100_80GB",
+              "count": 2,
+              "context": 131072
+            },
+            "2xh100": {
+              "label": "2 × NVIDIA H100 80 GB, 128K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-nvidia-2xh100/labels/latest",
+              "templateVersion": 5,
+              "accelerator": "H100_80GB",
+              "count": 2,
+              "context": 131072
+            },
+            "mi300x": {
+              "label": "1 × AMD MI300X 192 GB, 128K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/meta-models--muse-glimmer-30b--128k-amd-mi300x/labels/latest",
+              "templateVersion": 5,
+              "accelerator": "MI300_192GB",
+              "count": 1,
+              "context": 131072
+            }
+          }
+        },
+        "gemma-4-31b": {
+          "label": "Gemma 4 31B",
+          "publisher": "Google",
+          "summary": "Instruction-tuned multimodal model for reasoning, coding and image understanding.",
+          "license": "Apache 2.0",
+          "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+          "huggingFace": "google/gemma-4-31B-it",
+          "model": "azureml://registries/azure-huggingface/models/google--gemma-4-31b-it/versions/7",
+          "deploymentName": "gemma-4-31b",
+          "defaultOption": "a100",
+          "options": {
+            "a100": {
+              "label": "1 × NVIDIA A100 80 GB, 16K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--16k-nvidia-a100/labels/latest",
+              "templateVersion": 19,
+              "accelerator": "A100_80GB",
+              "count": 1,
+              "context": 16384
+            },
+            "h100": {
+              "label": "1 × NVIDIA H100 80 GB, 16K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--16k-nvidia-h100/labels/latest",
+              "templateVersion": 19,
+              "accelerator": "H100_80GB",
+              "count": 1,
+              "context": 16384
+            },
+            "2xa100": {
+              "label": "2 × NVIDIA A100 80 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-nvidia-2xa100/labels/latest",
+              "templateVersion": 19,
+              "accelerator": "A100_80GB",
+              "count": 2,
+              "context": 262144
+            },
+            "2xh100": {
+              "label": "2 × NVIDIA H100 80 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-nvidia-2xh100/labels/latest",
+              "templateVersion": 19,
+              "accelerator": "H100_80GB",
+              "count": 2,
+              "context": 262144
+            },
+            "mi300x": {
+              "label": "1 × AMD MI300X 192 GB, 256K context",
+              "template": "azureml://registries/azure-huggingface/deploymenttemplates/google--gemma-4-31b-it--256k-amd-mi300x/labels/latest",
+              "templateVersion": 18,
+              "accelerator": "MI300_192GB",
+              "count": 1,
+              "context": 262144
+            }
+          }
+        }
+      }
+    },
+    "catalog": "[variables('$fxv#0')]",
+    "selected": "[variables('catalog').models[parameters('modelKey')]]",
+    "option": "[variables('selected').options[if(empty(parameters('optionKey')), variables('selected').defaultOption, parameters('optionKey'))]]",
+    "hourlyCents": "[mul(mul(variables('catalog').rateCentsPerAcceleratorHour[variables('option').accelerator], variables('option').count), parameters('instances'))]",
+    "estimatedHourlyCost": "[format('{0}.{1}', div(variables('hourlyCents'), 100), padLeft(string(mod(variables('hourlyCents'), 100)), 2, '0'))]",
+    "estimatedMonthlyCost": "[div(add(mul(variables('hourlyCents'), variables('catalog').hoursPerMonth), 99), 100)]",
+    "effectiveBudget": "[if(greater(parameters('monthlyBudget'), 0), parameters('monthlyBudget'), mul(div(add(div(mul(variables('estimatedMonthlyCost'), 110), 100), 99), 100), 100))]",
+    "token": "[take(toLower(uniqueString(resourceGroup().id, parameters('namePrefix'))), 6)]",
+    "base": "[format('{0}-{1}', toLower(parameters('namePrefix')), variables('token'))]",
+    "gatewayName": "[format('aigw-{0}', variables('base'))]",
+    "modelAccountName": "[format('aimodels-{0}', variables('base'))]",
+    "tags": {
+      "sovereign-ai-variant": "open-weight-models-public-cloud"
+    },
+    "workspaceName": "default",
+    "foundryProviderName": "foundry",
+    "deploymentName": "[variables('selected').deploymentName]",
+    "modelVersion": "[last(split(variables('selected').model, '/'))]",
+    "foundryUserRole": "53ca6127-db72-4b80-b1b0-d745d6d5456d",
+    "aiGatewayUserRole": "caad7a21-134e-43f4-a550-c5ffc17e051c",
+    "deployerId": "[deployer().objectId]",
+    "grantExtraPrincipal": "[and(not(empty(parameters('principalId'))), not(equals(parameters('principalId'), variables('deployerId'))))]",
+    "tokenAudience": "https://azure-api.net/aigateway"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2026-11-01",
+      "name": "[variables('modelAccountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "kind": "AIServices",
+      "sku": {
+        "name": "S0"
+      },
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "allowProjectManagement": false,
+        "customSubDomainName": "[variables('modelAccountName')]",
+        "disableLocalAuth": true,
+        "publicNetworkAccess": "Enabled",
+        "networkAcls": {
+          "defaultAction": "Allow"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/managedComputeDeployments",
+      "apiVersion": "2026-11-01",
+      "name": "[format('{0}/{1}', variables('modelAccountName'), variables('deploymentName'))]",
+      "sku": {
+        "name": "GlobalManagedCompute",
+        "capacity": "[parameters('instances')]"
+      },
+      "properties": {
+        "model": "[variables('selected').model]",
+        "deploymentTemplate": "[variables('option').template]",
+        "acceleratorType": "[variables('option').accelerator]",
+        "versionUpgradeOption": "NoAutoUpgrade"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/aigateways",
+      "apiVersion": "2025-09-01-preview",
+      "name": "[variables('gatewayName')]",
+      "location": "[parameters('aiGatewayLocation')]",
+      "tags": "[variables('tags')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Web/connectorGateways",
+      "apiVersion": "2026-05-01-preview",
+      "name": "[variables('gatewayName')]",
+      "location": "[parameters('aiGatewayLocation')]",
+      "tags": "[variables('tags')]",
+      "properties": {},
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), variables('foundryUserRole'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('foundryUserRole'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/aigateways/workspaces/modelProviders",
+      "apiVersion": "2025-09-01-preview",
+      "name": "[format('{0}/{1}/{2}', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'))]",
+      "properties": {
+        "kind": "Foundry",
+        "displayName": "Foundry",
+        "description": "[format('Foundry model account {0}, reached with the gateway managed identity.', variables('modelAccountName'))]",
+        "foundry": {
+          "endpoint": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), '2026-11-01').endpoint]",
+          "resourceIds": [
+            "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+          ],
+          "authentication": {
+            "kind": "ManagedIdentity",
+            "managedIdentity": {
+              "resource": "https://cognitiveservices.azure.com/"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+        "[extensionResourceId(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), variables('foundryUserRole')))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models",
+      "apiVersion": "2025-09-01-preview",
+      "name": "[format('{0}/{1}/{2}/{3}', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'), variables('deploymentName'))]",
+      "properties": {
+        "displayName": "[variables('selected').label]",
+        "description": "[format('{0} ({1}, version {2}) on managed compute in {3}.', variables('selected').label, variables('selected').huggingFace, variables('modelVersion'), variables('modelAccountName'))]",
+        "apiFormat": "OpenAIChatCompletions",
+        "supportedEndpoints": [
+          "/openai/v1/chat/completions"
+        ],
+        "deployment": {
+          "resourceId": "[resourceId('Microsoft.CognitiveServices/accounts/managedComputeDeployments', variables('modelAccountName'), variables('deploymentName'))]",
+          "modelName": "[variables('deploymentName')]",
+          "modelVersion": "[variables('modelVersion')]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways/workspaces/modelProviders', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts/managedComputeDeployments', variables('modelAccountName'), variables('deploymentName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/aigateways/workspaces/aliases",
+      "apiVersion": "2025-09-01-preview",
+      "name": "[format('{0}/{1}/{2}', variables('gatewayName'), variables('workspaceName'), variables('deploymentName'))]",
+      "properties": {
+        "aliasName": "[variables('deploymentName')]",
+        "description": "[format('Direct access to {0}.', variables('selected').label)]",
+        "backendModels": [
+          {
+            "resourceId": "[resourceId('Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'), variables('deploymentName'))]",
+            "priority": 0,
+            "weight": 100
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+        "[resourceId('Microsoft.ApiManagement/aigateways/workspaces/modelProviders/models', variables('gatewayName'), variables('workspaceName'), variables('foundryProviderName'), variables('deploymentName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+      "name": "[guid(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), variables('aiGatewayUserRole'), variables('deployerId'))]",
+      "properties": {
+        "principalId": "[variables('deployerId')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('aiGatewayUserRole'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('grantExtraPrincipal')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]",
+      "name": "[guid(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), variables('aiGatewayUserRole'), parameters('principalId'))]",
+      "properties": {
+        "principalId": "[parameters('principalId')]",
+        "principalType": "[parameters('principalType')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('aiGatewayUserRole'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "chatCompletionsUrl": {
+      "type": "string",
+      "value": "[format('{0}default/models/openai/v1/chat/completions', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), '')))]"
+    },
+    "gatewayModelNames": {
+      "type": "array",
+      "value": [
+        "[variables('deploymentName')]"
+      ]
+    },
+    "tokenAudience": {
+      "type": "string",
+      "value": "[variables('tokenAudience')]"
+    },
+    "tryIt": {
+      "type": "string",
+      "value": "[format('TOKEN=$(az account get-access-token --resource {0} --query accessToken -o tsv); curl -s {1} -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d ''{{\"model\":\"{2}\",\"messages\":[{{\"role\":\"user\",\"content\":\"Hello\"}}]}}''', variables('tokenAudience'), format('{0}default/models/openai/v1/chat/completions', format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))), variables('deploymentName'))]"
+    },
+    "estimatedHourlyCost": {
+      "type": "string",
+      "metadata": {
+        "description": "Estimated cost in USD for every hour the deployment runs, at Global managed compute rates."
+      },
+      "value": "[variables('estimatedHourlyCost')]"
+    },
+    "estimatedMonthlyCost": {
+      "type": "int",
+      "metadata": {
+        "description": "Estimated cost in USD for a month (730 hours) of running."
+      },
+      "value": "[variables('estimatedMonthlyCost')]"
+    },
+    "monthlyBudget": {
+      "type": "int",
+      "value": "[variables('effectiveBudget')]"
+    },
+    "model": {
+      "type": "string",
+      "value": "[variables('selected').model]"
+    },
+    "deploymentTemplate": {
+      "type": "string",
+      "value": "[variables('option').template]"
+    },
+    "license": {
+      "type": "string",
+      "value": "[variables('selected').license]"
+    },
+    "huggingFaceModel": {
+      "type": "string",
+      "value": "[variables('selected').huggingFace]"
+    },
+    "deploymentScope": {
+      "type": "string",
+      "value": "Global"
+    },
+    "foundryEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('modelAccountName')), '2026-11-01').endpoint]"
+    },
+    "aiGatewayName": {
+      "type": "string",
+      "value": "[variables('gatewayName')]"
+    },
+    "aiGatewayId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName'))]"
+    },
+    "aiGatewayEndpoint": {
+      "type": "string",
+      "value": "[format('https://{0}/', coalesce(tryGet(tryGet(reference(resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')), '2025-09-01-preview'), 'frontend'), 'defaultHostname'), ''))]"
+    },
+    "grantAccessCommand": {
+      "type": "string",
+      "value": "[format('az role assignment create --role \"AI Gateway User\" --assignee <object-id> --scope {0}', resourceId('Microsoft.ApiManagement/aigateways', variables('gatewayName')))]"
+    }
+  }
+}
