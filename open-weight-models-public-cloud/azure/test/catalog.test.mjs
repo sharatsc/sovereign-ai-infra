@@ -17,7 +17,7 @@ test('every model has the four sovereignty fields', () => {
   }
 });
 
-test('every option is pinned and priced', () => {
+test('every option names its template, tested version and price', () => {
   for (const [key, m] of models) {
     for (const [optionKey, o] of Object.entries(m.options)) {
       const name = `${key}/${optionKey}`;
