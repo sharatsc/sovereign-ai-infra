@@ -253,7 +253,7 @@
             "type": "Microsoft.Common.InfoBox",
             "options": {
               "style": "Info",
-              "text": "You (the account running this deployment) get the AI Gateway User role automatically, so you can call the model with an Entra token. Nobody gets a direct role on the model in Foundry: the gateway is the only way in. Optionally grant one more user, group or service principal. To find an object ID, run: az ad user show --id <email> --query id -o tsv"
+              "text": "You (the account running this deployment) get the AI Gateway User role automatically, so you can call the model with an Entra token. This deployment grants nobody a direct role on the model in Foundry, so the gateway is the only way in unless someone inherits a Foundry role from the subscription or resource group. Optionally grant one more user, group or service principal. To find an object ID, run: az ad user show --id <email> --query id -o tsv"
             }
           },
           {

@@ -433,7 +433,7 @@ var startHereMarkdown = join([
   ''
   'Cost: **${estimatedHourlyCost} USD an hour, about ${estimatedMonthlyCost} USD a month while deployed**. The monthly budget is **${effectiveBudget}** in your billing currency.'
   ''
-  'Call the model at **${gatewayEndpoint}** with your Microsoft Entra account. The account that deployed this stack already has access. Give others access with the **AI Gateway User** role. The gateway is the only way in: nobody has a direct role on the model in Foundry.'
+  'Call the model at **${gatewayEndpoint}** with your Microsoft Entra account. The account that deployed this stack already has access. Give others access with the **AI Gateway User** role. This template grants nobody a direct role on the model in Foundry; roles inherited from the resource group, subscription or management group still reach it, so check with az role assignment list --scope ${modelAccount.id} --include-inherited.'
   ''
   '```bash'
   'TOKEN=$(az account get-access-token --resource ${tokenAudience} --query accessToken -o tsv)'

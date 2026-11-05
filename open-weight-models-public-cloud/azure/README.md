@@ -129,10 +129,21 @@ The briefing's guidance for this variant, and how the template meets it:
   [`scripts/verify-catalog.sh`](scripts/verify-catalog.sh) reports a mismatch when the
   label moves. Run it before you deploy.
 - **The gateway is the only way in.** The deployer and `principalId` get the AI Gateway
-  User role and no role on the Foundry account. Local keys are disabled, so only the
-  gateway's managed identity can call the model in Foundry. The gateway has one alias, with
+  User role and no role on the Foundry account. Local keys are disabled, so reaching the
+  model in Foundry takes an Entra role on the account, and the template grants one only to
+  the gateway's managed identity. The gateway has one alias, with
   the model's own name and no fallback: if the model can't serve a request, the request
   fails rather than going to another model.
+
+  This holds only if nobody inherits a Foundry data-plane role on the account from the
+  resource group, subscription or management group. Roles such as Foundry User, Azure AI
+  User, Azure AI Developer, Cognitive Services User and Cognitive Services OpenAI User,
+  granted at any of those scopes, let a caller reach the model directly and skip the
+  gateway. Check who has access after you deploy:
+
+  ```bash
+  az role assignment list --scope <foundry account ID> --include-inherited -o table
+  ```
 - **License and exit route.** The form, outputs, workbook and next-steps page show the
   license and the Hugging Face ID. The same weights run anywhere: to leave public cloud,
   take them from Hugging Face to the briefing's **open weight models on private cloud**
